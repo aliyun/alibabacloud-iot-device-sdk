@@ -163,7 +163,7 @@ class Device extends EventEmitter {
       getType: 'file',
       sign: 'xxx',
       signMethod: 'Sha256',
-      url: 'https://otx-devicecenter-thing-config-cn-shanghai-online.oss-cn-shanghai.aliyuncs.com/<pk>/<dn>?Expires=1548396135&OSSAccessKeyId=LTAIRY3rx5dg2JBm&Signature=<Signature>' },
+      url: 'https://otx-devicecenter-thing-config-cn-shanghai-online.oss-cn-shanghai.aliyuncs.com/xxxxxx' },
     id: '3',
     method: 'thing.config.get',
     version: '1.0' 
