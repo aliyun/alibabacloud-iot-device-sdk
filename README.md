@@ -1,6 +1,6 @@
 # Aliyun IoT Device SDK for Javascript
 
-Aliyun IoT Device SDK由阿里云提供给开发者然设备接入到阿里云IoT物联网平台(LinkPlatform )的工具。如果有使用问题可以反馈到xuanyan.lyw@alibaba-inc.com，关于IoT物联网平台更多功能和功能详细说明，参考官网文档     https://help.aliyun.com/product/30520.html?spm=a2c4g.11186623.6.540.3cb468d0Y2JGB2
+Aliyun IoT Device SDK由阿里云提供给开发者然设备接入到阿里云IoT物联网平台(LinkPlatform )的工具。如果有使用问题可以反馈到xuanyan.lyw@alibaba-inc.com，关于IoT物联网平台更多功能和功能详细说明，参考官网文档     https://help.aliyun.com/product/30520.html
 
 ## 安装
 
@@ -241,7 +241,7 @@ device.on('error', (err) => {
 
 上报物模型属性：
 
-* `params` 属性参数，`Object` 类型
+* `params` 属性参数，`Object` 类型
 * `callback`
   * `res` 服务端 reply 消息内容
 
@@ -261,7 +261,7 @@ device.postProps({
 上报物模型事件：
 
 * `eventName` 事件名称 `String` 类型
-* `params` 事件参数，`Object` 类型
+* `params` 事件参数，`Object` 类型
 * `callback`
   * `err` 错误，比如超时
   * `res` 服务端 reply 消息内容
@@ -331,7 +331,7 @@ device.onService('wakeup_sync', function (res,reply) {
 
 上报设备标签：
 
-* `params` 属性对象数组，`array` 类型，内容格式示例 [ {attrKey:'xxx',attrValue:'xxx'},{}...]
+* `params` 属性对象数组，`array` 类型，内容格式示例 [ {attrKey:'xxx',attrValue:'xxx'},{}...]
   * `attrKey` 错误，比如超时或者 `res.code !== 200`
   * `attrValue` 服务端 reply 消息内容
 * `callback`
@@ -362,7 +362,7 @@ device.postTags(
 
 删除设备标签：
 
-* `tags` 属性参数，`array` 类型，内容格式 [ 'string','string',....]
+* `tags` 属性参数，`array` 类型，内容格式 [ 'string','string',....]
   * `string` 内外为tag的标签名称
 
 - 示例：
