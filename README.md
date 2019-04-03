@@ -60,7 +60,7 @@ device.postProps({
 });
 ```
 
-调用 `device.postProps()`  等同于执行以下代码：
+调用 `device.postProps()` 等同于执行以下代码：
 ```javascript
 // 发布属性上报 topic
 device.publish('/sys/<productKey>/<deviceName>/thing/event/property/post', JSON.stringify({
@@ -85,7 +85,7 @@ device.on('message', function(topic, message){
 });
 ```
 
-###  监听云端下发的服务调用消息
+### 监听云端下发的服务调用消息
 
 ```javascript
 // 监听云端设置属性wakeup_async服务消息
@@ -192,7 +192,7 @@ device.on('connect', () => {
 
 当接受到云端消息时触发，回调函数参数：
 
-* `topic`  消息主题
+* `topic`  消息主题
 * `message` 消息 payload
 
 
