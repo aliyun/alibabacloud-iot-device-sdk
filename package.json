@@ -1,0 +1,63 @@
+{
+  "name": "aliyun-iot-device-sdk",
+  "version": "1.1.0",
+  "description": "aliyun iot device sdk",
+  "keywords": [
+    "iot",
+    "mqtt",
+    "linkPlatform",
+    "linkKit",
+    "linkEdge",
+    "aliyun-iot-mqtt",
+    "aliyun",
+    "aliyunIot",
+    "iothub",
+    "linkdevelop",
+    "alink",
+    "device",
+    "sdk",
+    "iot-sdk"
+  ],
+  "main": "lib/index.js",
+  "homepage": "https://github.com/aliyun/aliyun-iot-device-sdk-js",
+  "scripts": {
+    "lib": "babel src -d lib",
+    "dev": "babel src -w -d lib",
+    "test": "jest --coverage ./test/",
+    "test:dev": "jest --coverage --watch ./test/",
+    "rap": "npm run lib && rm -rf rap && mkdir rap && cp -R lib rap && cp package.json rap && sed 's/npm/rap/g' README.md > rap/README.md && cd rap && rap publish",
+    "dist": "npm run lib && rm -rf dist/ && mkdir dist && browserify lib/index.js | uglifyjs -c > dist/aliyun-iot-device-sdk.min.js",
+    "pubus": "rm -rf unstabitily && mkdir unstabitily && cp package.unstabitily.json unstabitily/ && mv ./unstabitily/package.unstabitily.json ./unstabitily/package.json &&   cp README.md ./unstabitily && cp -r lib/ ./unstabitily  && tnpm publish ./unstabitily/"
+  },
+  "jest": {
+    "verbose": true,
+    "testEnvironment": "node",
+    "moduleDirectories": [
+      "node_modules"
+    ]
+  },
+  "author": "玄彦",
+  "email":"xuanyan.lyw@alibaba-inc.com",
+  "url":"https://github.com/aliyun/aliyun-iot-device-sdk-js/issues",
+  "license": "MIT",
+  "files":[
+    "dist/"
+  ],
+  "devDependencies": {
+    "babel-cli": "^6.26.0",
+    "babel-preset-env": "^1.6.1",
+    "browserify": "^16.2.2",
+    "jest": "^22.0.4",
+    "uglify-js": "^3.4.5"
+  },
+  "dependencies": {
+    "axios": "^0.18.0",
+    "mqtt": "^2.15.0",
+    "qs": "^6.6.0"
+  },
+  "ruff": {
+    "dependencies": {
+      "mqtt": "^0.1.3"
+    }
+  }
+}

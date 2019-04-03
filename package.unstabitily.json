@@ -1,0 +1,36 @@
+{
+  "name": "aliyun-iot-device-sdk-unstabitily",
+  "version": "0.4.9",
+  "description": "阿里云IoT测试sdk，会包含测试中的新功能。注意:此版本不稳定，稳定版本版本请使用 npm install aliyun-iot-device-sdk",
+  "main": "./lib/index.js",
+  "scripts": {
+    "broker": "node broker.js",
+    "lib": "babel src -d lib",
+    "dev": "babel src -w -d lib",
+    "test": "jest --coverage ./test/",
+    "test:dev": "jest --coverage --watch ./test/",
+    "rap": "npm run lib && rm -rf rap && mkdir rap && cp -R lib rap && cp package.json rap && sed 's/npm/rap/g' README.md > rap/README.md && cd rap && rap publish",
+    "dist": "npm run lib && rm -rf dist/ && mkdir dist && browserify lib/index.js | uglifyjs -c > dist/aliyun-iot-device-sdk.min.js"
+  },
+  "author": "玄彦，饭鱼",
+  "license": "MIT",
+  "devDependencies": {
+    "aedes": "^0.35.3",
+    "babel-cli": "^6.26.0",
+    "babel-preset-env": "^1.6.1",
+    "browserify": "^16.2.2",
+    "jest": "^22.0.4",
+    "mosca": "^2.8.3",
+    "uglify-js": "^3.4.5"
+  },
+  "dependencies": {
+    "axios": "^0.18.0",
+    "mqtt": "^2.15.0",
+    "qs": "^6.6.0"
+  },
+  "ruff": {
+    "dependencies": {
+      "mqtt": "^0.1.3"
+    }
+  }
+}

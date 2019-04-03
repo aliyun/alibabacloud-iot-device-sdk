@@ -1,0 +1,6 @@
+coverage/
+src/
+rap/
+examples/Ruff
+*.log
+*.out
