@@ -13,7 +13,7 @@ const isBrowser =
     self instanceof WorkerGlobalScope);
 const DEFAULT_REGION = 'cn-shanghai';
 const BROKER_URL = '%s%s.iot-as-mqtt.%s.aliyuncs.com:%s/';
-const tlsPrefix = ['tls://', 'mqtts://', 'wss://'];
+const tlsPrefix = ['tls://', 'mqtts://', 'wss://','wxs://','alis://'];
 
 export default class Model {
 
@@ -123,18 +123,20 @@ export default class Model {
     }
   }
 
+  // 初始化连接参数
   init(config) {
-    // 初始化连接参数
+    // 判断是否使用加密模式
     if (
-      (config.brokerUrl &&
-        tlsPrefix.some(prefix => config.brokerUrl.startsWith(prefix))) ||
-      config.tls
+      (config.brokerUrl && tlsPrefix.some(prefix => config.brokerUrl.startsWith(prefix))) ||
+      (config.protocol && tlsPrefix.some(prefix => config.protocol.startsWith(prefix))) ||
+      config.tls 
     ) {
       this.securemode = 2;
       this.tls = true;
     } else {
       this.securemode = 3;
     }
+    // 浏览器使用433端口，非浏览器使用1883端口
     if (isBrowser) {
       if (this.tls) {
         this.brokerProtocol = 'wss://';
@@ -150,31 +152,14 @@ export default class Model {
       }
       this.brokerPort = 1883;
     }
-    if (
-      (config.brokerUrl &&
-        tlsPrefix.some(prefix => config.brokerUrl.startsWith(prefix))) ||
-      config.tls
-    ) {
-      this.securemode = 2;
-      this.tls = true;
-    } else {
-      this.securemode = 3;
-    }
-    if (isBrowser) {
-      if (this.tls) {
-        this.brokerProtocol = 'wss://';
-      } else {
-        this.brokerProtocol = 'ws://';
-      }
+
+    // 补充自定义protocol，支持微信小程序wxs://和阿里小程序alis://
+    if (config.protocol && (config.protocol.startsWith('wxs') || config.protocol.startsWith('alis'))) {
+      // 支持wxs://和wxs两种传入模式
+      this.brokerProtocol = config.protocol.indexOf('://')!=-1?config.protocol:config.protocol+"://";
       this.brokerPort = 443;
-    } else {
-      if (this.tls) {
-        this.brokerProtocol = 'mqtts://';
-      } else {
-        this.brokerProtocol = 'mqtt://';
-      }
-      this.brokerPort = 1883;
-    }
+    } 
+
     //三元组忽略大小写
     Object.keys(config).forEach((originKey) => {
       let key = originKey.toLowerCase();

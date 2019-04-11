@@ -27,6 +27,7 @@
     "test:dev": "jest --coverage --watch ./test/",
     "rap": "npm run lib && rm -rf rap && mkdir rap && cp -R lib rap && cp package.json rap && sed 's/npm/rap/g' README.md > rap/README.md && cd rap && rap publish",
     "dist": "npm run lib && rm -rf dist/ && mkdir dist && browserify lib/index.js | uglifyjs -c > dist/aliyun-iot-device-sdk.min.js",
+    "buildJS": "npm run lib && rm -rf dist/ && mkdir dist && browserify lib/index.js  > dist/aliyun-iot-device-sdk.js",
     "pubus": "rm -rf unstabitily && mkdir unstabitily && cp package.unstabitily.json unstabitily/ && mv ./unstabitily/package.unstabitily.json ./unstabitily/package.json &&   cp README.md ./unstabitily && cp -r lib/ ./unstabitily  && tnpm publish ./unstabitily/"
   },
   "jest": {
@@ -59,5 +60,8 @@
     "dependencies": {
       "mqtt": "^0.1.3"
     }
+  },
+  "publishConfig": {
+    "registry": "https://registry.npm.alibaba-inc.com"
   }
 }

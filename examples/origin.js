@@ -1,5 +1,5 @@
 // origin usage
-const aliyunIot = require('aliyun-iot-device-sdk');
+const aliyunIot = require('../');
 
 // init device and connect linkplatform
 const device = aliyunIot.device({
