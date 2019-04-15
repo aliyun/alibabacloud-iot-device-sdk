@@ -680,7 +680,62 @@ gateway.on('connect', () => {
 
 #### 1.1.0 (未发布)
 - 增加onService中reply函数,并支持同步和异步调用
+```javascript
+// 假设物模型中有 wakeup_async的异步服务和wakeup_sync的同步服务，输出值都为out 
+// 异步方式回复
+device.onService('wakeup_async', function (res,reply) {
+  // 处理服务参数
+  console.log('^onService',res);
+  reply({
+    "code": 200,
+    "data": {out:1}
+  });
+})
+
+// 同步方式回复
+device.onService('wakeup_sync', function (res,reply) {
+  // 处理服务参数
+  console.log('^onService',res);
+  reply({
+    "code": 200,
+    "data": {out:1}
+  },'sync');
+})
+```
+
 - 增加onConfig方法用于订阅云端远程配置更新
+- 增加部分功能的example
+- 增加对微信小程序的支持，使用方式
+
+````javascript
+<!-- 1：引入对象 -->
+require('../../dist/aliyun-iot-device-sdk.min.js') 
+const aliyunIot = global.aliyunIot;
+<!-- 2：小程序设置可信地址
+  1：配置可用wss地址
+  demo三元组是示例使用，自己实际场景需要换成自己的三元组和物模型
+  因为微信安全要求，所有设备连接需要在小程序管理后台注册，格式为
+  本例添加的socket域名：wss://a1aq9sqk2je.iot-as-mqtt.cn-shanghai.aliyuncs.com:443
+  实际使用的域名：wss://<productKey>.iot-as-mqtt.<region>.aliyuncs.com:443  
+  2：配置子设备注册的https地址
+  示例：https://iot-auth.cn-shanghai.aliyuncs.com/auth/register/device
+  通用地址:https://iot-auth.<region>.aliyuncs.com/auth/register/device
+ -->
+ <!-- 3：使用sdk，需要增加protocol配置为wxs://,剩下的和其他环境使用sdk的api一致，可以参考文档-->
+  const _device = {
+    "productKey": "a1aq9sQk2JE",
+    "deviceName": "sdk_device5",
+    "deviceSecret": "D3Km71eKDpMwyVSAR4eoz9yq1HeDhxsT",
+    "protocol": 'wxs://'
+  } 
+  //初始化device实例 
+  let device = aliyunIot.device(_device);
+  // 3：具体设备api，更多请参考文档
+  //测试上报一条设备标签数据
+  device.on('connect', () => {
+    console.log('连接成功....');
+  });
+````
 
 #### 1.0.1版本更新
 
