@@ -1,17 +1,19 @@
 
-const aliyunIot = require('../');
+const aliyunIot = require('../lib');
+
+
 
 const device = aliyunIot.device({
   "ProductKey": "a1ouyopKiEU",
   "DeviceName": "device6",
   "DeviceSecret": "yoyXdmII3xcT9udR1DLQRzMGjkRRtkgc"
 });
- 
+
 device.on('connect', () => {
   console.log('>>>>>connect');
-  device.postEvent("error", {
-    power: 10,
+  device.postProps({
+    LightSwitch: 0
   }, (res) => {
-    console.log(`postEvent:`,res);
-  })
+    console.log(`postProps:`,res);
+  });
 });

@@ -9,9 +9,7 @@ const device = aliyunIot.device({
 
 device.on('connect', () => {
   console.log('>>>>>device connect succeed');
-  // 设备主动获取影子
   device.getShadow();
-  // 设备上报实际值
   device.postShadow({
     a: "avalue11"
   });
@@ -19,8 +17,7 @@ device.on('connect', () => {
     device.deleteShadow("a");
   },5000)
 });
-
-//订阅影子设备返回值
+//subscribe platform response 
 device.onShadow((res) => {
   console.log('获取最新设备影子,%o', res);
 })
