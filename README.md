@@ -531,7 +531,7 @@ gateway.getTopo(
 
 从拓扑关系里移除子设备
 
-* `params` 移除设备参数的数组，示例:[{"deviceName": "xx","productKey": "xx"},{"deviceName": "xx","productKey": "xx"},....]
+* `params` 移除设备参数的数组，示例:[{"productKey": "xx","deviceName": "xx"},{"productKey": "xx","deviceName": "xx"},....]
   * `productKey`
   * `deviceName`
 * `callback`
@@ -539,7 +539,7 @@ gateway.getTopo(
 
 ````js
 gateway.removeTopo(
-  [{"deviceName": "xx","productKey": "xx"},{"deviceName": "xx","productKey": "xx"}],
+  [{"productKey": "xx","deviceName": "xx"},{"productKey": "xx","deviceName": "xx"}],
   (res)=>{
     console.log('>>>>>getTopo')
     console.log(res.message)
@@ -555,7 +555,7 @@ gateway.removeTopo(
 
 子设备上线
 
-* `params` 登录的设备信息示例：{"deviceName": "xx","productKey": "xx"}
+* `params` 登录的设备信息示例：{"productKey": "xx","deviceName": "xx",}
   * `productKey`   (`String`)
   * `deviceName`   (`String`)
   * `deviceSecret` (`String`)
@@ -568,7 +568,7 @@ gateway.removeTopo(
 gateway.on('connect', () => {
   //子设备登录ok
   sub1 = gateway.login(
-    {"deviceName":"xx","productKey":"xx","deviceSecret":"xxx"},
+    {"productKey":"xx","deviceName":"xx","deviceSecret":"xxx"},
     (res) => {
       console.log('>>>>>login', res);
     }
@@ -614,8 +614,8 @@ gateway.logout(
 直连设备动态注册
 
 * `params` 子设备身份 object 实例  productKey:"a15YDgQGhU0",
-  * `productSecret`
   * `productKey`
+  * `productSecret`
   * `deviceName`
 * `callback`
   * `res` 服务端 reply 消息内容，包含设备三元组
