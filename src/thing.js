@@ -7,35 +7,26 @@ const {
   createDebug,
   getIP,
   isJsonString,
-  mqttMatch,
-  mqttNotMatch
+  mqttMatch
 } = require('./utils');
 const debug = createDebug('device');
 const guid = createGuid();
 const packagejson = require('../package.json');
 const Model = require('./model');
-const nilFn = ()=>{};
 
 class Device extends EventEmitter {
-
-  constructor(config = {},mqttClient) {
+  constructor(config = {}) {
     super();
-    //init model
+    //init 
     this.model = new Model(config);
-    // init mqttClient
-    if (mqttClient === undefined) {
-      this._createClient(this.model);
-      //订阅topic
-      this._subscribePresetTopic();
-    } else {
-      this._mqttClient = mqttClient;
-    }
-  
-    //上报客户端sdk信息 todo:
-    // this._reportSDKInfo();
+    this._createClient(this.model);
+    //订阅topic
+    this._subscribePresetTopic();
+    //上报客户端sdk信息
+    this._reportSDKInfo();
     this.serveCB = [];
     this._onShadowCB;
-    this._onConfigCB = nilFn;
+    this._onConfigCB;
     //兼容旧版本
     this._compatibleoverdue();
   }
@@ -271,7 +262,7 @@ class Device extends EventEmitter {
     this._pushCallback(id, cb);
     const msg = this.model.genAlinkContent(method, params, id);
     const payload = JSON.stringify(msg);
-    console.log("_publishAlinkMessage:",payload,pubTopic);
+    // console.log("_publishAlinkMessage:",payload);
     this.publish(pubTopic, payload, (err, res) => {
       debug('pub callback', pubTopic, msg.id, err, res);
       // console.log('pub callback', pubTopic, msg.id, err, res);
@@ -283,12 +274,45 @@ class Device extends EventEmitter {
   _createClient() {
     const client = mqtt.connect(this.model.brokerUrl, this.model.genConnectPrarms());
     this._mqttClient = client;
+  }
+  _subscribePresetTopic() {
     ['connect', 'error', 'close', 'reconnect', 'offline', 'message'].forEach(evtName => {
       this._mqttClient.on(evtName, (...args) => {
         debug(`mqtt client ${evtName}`);
         if (evtName === 'connect') {
           debug('mqtt connected');
-          this._subscribePresetTopic();
+          //初始化只需要订阅 属性返回的topic和标签删除返回的topic，事件topic需要跟进event动态订阅，所以初始化不需要订阅
+          [
+            // "/sys/#",
+            // "/shadow/#",
+            // "/ext/#"
+            // devices
+            this.model.POST_PROPS_REPLY_TOPIC,
+            this.model.getWildcardEvenTopic(),
+            this.model.TAG_REPLY_TOPIC,
+            this.model.TAG_DELETE_REPLY_TOPIC,
+            this.model.CONFIG_REPLY_TOPIC,
+            this.model.SHADOW_SUBSCRIBE_TOPIC,
+            this.model.CONFIG_SUBSCRIBE_TOPIC,
+            this.model.CONFIG_SUBSCRIBE_RESP_TOPIC,
+            // gateway
+            this.model.ADD_TOPO_REPLY_TOPIC,
+            this.model.DELETE_TOPO_REPLY_TOPIC,
+            this.model.GET_TOPO_REPLY_TOPIC,
+            this.model.LOGIN_REPLY_TOPIC,
+            this.model.LOGOUT_REPLY_TOPIC,
+            this.model.SUBDEVICE_REGISTER_REPLY_TOPIC,
+            this.model.RRPC_REQ_TOPIC
+          ].forEach((replyTopic) => {
+            // console.log("replyTopic>>>>>>", replyTopic);
+            this.subscribe(replyTopic, {
+              "qos": 1
+            }, (error, res) => {
+              if (error) {
+                debug('sub error:', error.toString);
+              }
+            })
+          })
         }
         // 事件流到设备端开发者lib中的方式有2中，通过subscribe和通过callback
         if (evtName === 'message') {
@@ -299,87 +323,13 @@ class Device extends EventEmitter {
           this._mqttCallbackHandler(...args);
           return;
         }
-        if (evtName === 'close') {
-          console.log("on close");
-          this._unsubscribePresetTopic();
-        }
         // 其他事件 'connect', 'error', 'close', 'reconnect', 'offline'处理
         this.emit(evtName,args);
       });
     });
-
-  }
-  _unsubscribePresetTopic(thing=this){
-    [
-      // "/sys/#",
-      // "/shadow/#",
-      // "/ext/#"
-      // devices
-      thing.model.POST_PROPS_REPLY_TOPIC,
-      thing.model.getWildcardEvenTopic(),
-      thing.model.TAG_REPLY_TOPIC,
-      thing.model.TAG_DELETE_REPLY_TOPIC,
-      thing.model.CONFIG_REPLY_TOPIC,
-      thing.model.SHADOW_SUBSCRIBE_TOPIC,
-      thing.model.CONFIG_SUBSCRIBE_TOPIC,
-      thing.model.CONFIG_SUBSCRIBE_RESP_TOPIC,
-      // gateway
-      thing.model.ADD_TOPO_REPLY_TOPIC,
-      thing.model.DELETE_TOPO_REPLY_TOPIC,
-      thing.model.GET_TOPO_REPLY_TOPIC,
-      thing.model.LOGIN_REPLY_TOPIC,
-      thing.model.LOGOUT_REPLY_TOPIC,
-      thing.model.SUBDEVICE_REGISTER_REPLY_TOPIC,
-      thing.model.RRPC_REQ_TOPIC
-    ].forEach((replyTopic) => {
-      // console.log("subscribe topic>>>>>>", replyTopic);
-      this.unsubscribe(replyTopic, {
-        "qos": 1
-      }, (error, res) => {
-        if (error) {
-          debug('sub error:', error.toString);
-        }
-      })
-    })
-  }
-  _subscribePresetTopic(thing=this) {
-    //初始化只需要订阅 属性返回的topic和标签删除返回的topic，事件topic需要跟进event动态订阅，所以初始化不需要订阅
-    [
-      // "/sys/#",
-      // "/shadow/#",
-      // "/ext/#"
-      // devices
-      thing.model.POST_PROPS_REPLY_TOPIC,
-      thing.model.getWildcardEvenTopic(),
-      thing.model.TAG_REPLY_TOPIC,
-      thing.model.TAG_DELETE_REPLY_TOPIC,
-      thing.model.CONFIG_REPLY_TOPIC,
-      thing.model.SHADOW_SUBSCRIBE_TOPIC,
-      thing.model.CONFIG_SUBSCRIBE_TOPIC,
-      thing.model.CONFIG_SUBSCRIBE_RESP_TOPIC,
-      // gateway
-      thing.model.ADD_TOPO_REPLY_TOPIC,
-      thing.model.DELETE_TOPO_REPLY_TOPIC,
-      thing.model.GET_TOPO_REPLY_TOPIC,
-      thing.model.LOGIN_REPLY_TOPIC,
-      thing.model.LOGOUT_REPLY_TOPIC,
-      thing.model.SUBDEVICE_REGISTER_REPLY_TOPIC,
-      thing.model.RRPC_REQ_TOPIC
-    ].forEach((replyTopic) => {
-      // console.log("subscribe topic>>>>>>", replyTopic);
-      this.subscribe(replyTopic, {
-        "qos": 1
-      }, (error, res) => {
-        console.log(">>>>>> subscribe topic resp",error,res);
-        if (error) {
-          debug('sub error:', error.toString);
-        }
-      })
-    })
   }
   // 处理内部message以及各种方法的回调
   _mqttCallbackHandler(topic,message) {
-    console.log('device _mqttCallbackHandler',topic,message);
     // 几种不处理的情况
     // 情况1:回调函数为空
     if (this._cb==[] && this._serviceCB==[] && this._onShadowCB == undefined && this._onConfigCB == undefined ){
@@ -403,11 +353,7 @@ class Device extends EventEmitter {
         return;
       }
       // 远程配置回调
-      if(
-          mqttMatch(this.model.getWildcardConfigTopic(),topic) &&
-          mqttNotMatch(this.model.CONFIG_REPLY_TOPIC,topic) &&
-          this._onConfigCB!=undefined
-        ){
+      if(mqttMatch(this.model.getWildcardConfigTopic(),topic) && this._onConfigCB!=undefined){
         this._onConfigCB(res);
         return;
       }
@@ -415,14 +361,13 @@ class Device extends EventEmitter {
       const {id: cbID} = res;
       const callback = this._popCallback(cbID);
       if(callback){callback(res);}
-
     } catch (e) {
       console.log('_mqttCallbackHandler error',e)
     }
   }
   // 查找回调函数,找到后使
   _popCallback(cbID) {
-    const cb = this._getCallbackById(cbID);
+    const cb = this._cb[cbID] || (() => {});
     delete this._cb[cbID];
     return cb;
   }
@@ -467,13 +412,6 @@ class Device extends EventEmitter {
       this._cb = []
     };
     this._cb[msgid] = fn;
-  }
-  _getCallbackById(msgid) {
-    // 初始化回调函数数组
-    if (this._cb == undefined) {
-      this._cb = []
-    };
-    return this._cb[msgid];
   }
   _pushReceiveServiceCallback(serviceName, fn) {
     // 初始化回调函数数组

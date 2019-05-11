@@ -3,7 +3,14 @@ const util = require('util');
 const aliyunIot = require('../../lib');
 const fixtures = require('../fixtures');
 
-const device = aliyunIot.device({...fixtures.sdk_device1});
+// const device = aliyunIot.device({...fixtures.sdk_device1});
+
+const device = aliyunIot.device({
+  "ProductKey": "a1ouyopKiEU",
+  // "ProductKey": "a1ouyopKiEU123",
+  "DeviceName": "sub1",
+  "DeviceSecret": "SpT5OQsX4LZi5CsQIb6OS8hVt8qFRw7o"
+})
 
 // const device = aliyunIot.device({
 //   productKey: 'a1BOOa9HG6Z',
@@ -35,7 +42,7 @@ device.on('connect', () => {
   console.log('>>>>>connect');
   // 上报设备属性
   device.postProps({
-    LightSwitch: 0
+    state: 0
   }, (res) => {
     console.log('1postProps');
   });
@@ -104,7 +111,7 @@ function devicebeok() {
   //订阅可以收到服务调用下发
   device.onService('wakeup_async', function (res) {
     // 处理服务参数
-    console.log('1^:device.serve');
+    console.log('1^:device.serve res',res);
   });
   //重复订阅不会多次执行回调函数
   device.onService('wakeup_async', function (res) {
@@ -116,6 +123,7 @@ function devicebeok() {
   device.onService('wakeup_async', function (res,reply) {
     // 处理服务参数
     console.log('^onService',res);
+
     reply({
       "code": 200,
       "data": {out:1}

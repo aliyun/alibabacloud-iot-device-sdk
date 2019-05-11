@@ -52,6 +52,12 @@ exports.sub_device2 = {
   deviceName: 'sub_device2',
   deviceSecret: 'qp5ZAHBffAjKgqjDQ2bgiReNWE5uBKDW'
 };
+exports.sub_device3 ={
+  "ProductKey": "a1aq9sQk2JE",
+  "DeviceName": "sub_device3",
+  "DeviceSecret": "yl2qWGfww43eXrePsHCDhKH5y8URJyJK"
+};
+
 
 // 基础版sdk开发
 exports.base_sdk_device1 = {

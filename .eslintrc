@@ -1,0 +1,7 @@
+{
+  "parser": "babel-eslint",
+  "extends": "eslint-config-ali/react",
+  "rules": {
+      "react/jsx-filename-extension": [1, { "extensions": [".js", ".jsx"] }]
+  }
+}

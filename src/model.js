@@ -123,6 +123,10 @@ export default class Model {
     }
   }
 
+  getLogoutTopic(pk,dn) {
+    
+  }
+
   // 初始化连接参数
   init(config) {
     // 判断是否使用加密模式
