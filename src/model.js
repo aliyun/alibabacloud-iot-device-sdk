@@ -4,6 +4,7 @@ import {
 } from './const'
 const {
   hmacSign,
+  getRTEvn
 } = require('./utils');
 const util = require('util');
 
@@ -104,7 +105,7 @@ export default class Model {
    * timestamp: 可选
    */
   genConnectPrarms() {
-    return {
+    let params =  {
       clientId: `${this.clientId}|securemode=${
             this.securemode
         },
@@ -119,8 +120,13 @@ export default class Model {
             }timestamp${this.timestamp}`
       ),
       keepalive: this.keepalive,
-      clean: this.clean
+      clean: this.clean,
     }
+    // 支付宝小程序api全局对象my
+    if(getRTEvn()==='alipay-min'){
+      params.my = my;
+    }
+    return params;
   }
 
   // 初始化连接参数

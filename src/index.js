@@ -19,13 +19,12 @@ const aliyunIot = {
 // }
 
 
-if (typeof window !== 'undefined') {
-  window.aliyunIot = aliyunIot;
-}
-if (typeof global !== 'undefined') {
-  global.aliyunIot = aliyunIot;
-}
-
+// if (typeof window !== 'undefined') {
+//   window.aliyunIot = aliyunIot;
+// }
+// if (typeof global !== 'undefined') {
+//   global.aliyunIot = aliyunIot;
+// }
 
 
 module.exports = aliyunIot;

@@ -26,8 +26,8 @@
     "test": "jest --coverage ./test/",
     "test:dev": "jest --coverage --watch ./test/",
     "rap": "npm run lib && rm -rf rap && mkdir rap && cp -R lib rap && cp package.json rap && sed 's/npm/rap/g' README.md > rap/README.md && cd rap && rap publish",
-    "dist": "npm run lib && rm -rf dist/ && mkdir dist && browserify lib/index.js | uglifyjs -c > dist/aliyun-iot-device-sdk.min.js",
-    "buildJS": "npm run lib && rm -rf dist/ && mkdir dist && browserify lib/index.js  > dist/aliyun-iot-device-sdk.js",
+    "dist": "npm run lib && rm -rf dist/ && mkdir dist && browserify lib/index.js -s iot| uglifyjs -c > dist/aliyun-iot-device-sdk.min.js",
+    "buildJS": "npm run lib && rm -rf dist/ && mkdir dist && browserify lib/index.js -s iot> dist/aliyun-iot-device-sdk.js",
     "pubus": "rm -rf unstabitily && mkdir unstabitily && cp package.unstabitily.json unstabitily/ && mv ./unstabitily/package.unstabitily.json ./unstabitily/package.json &&   cp README.md ./unstabitily && cp -r lib/ ./unstabitily  && tnpm publish ./unstabitily/"
   },
   "jest": {
@@ -38,10 +38,10 @@
     ]
   },
   "author": "玄彦",
-  "email":"xuanyan.lyw@alibaba-inc.com",
-  "url":"https://github.com/aliyun/aliyun-iot-device-sdk-js/issues",
+  "email": "xuanyan.lyw@alibaba-inc.com",
+  "url": "https://github.com/aliyun/aliyun-iot-device-sdk-js/issues",
   "license": "MIT",
-  "files":[
+  "files": [
     "dist/"
   ],
   "devDependencies": {
@@ -53,7 +53,7 @@
   },
   "dependencies": {
     "axios": "^0.18.0",
-    "mqtt": "^2.15.0",
+    "mqtt": "./MQTT.js-20190511",
     "qs": "^6.6.0"
   },
   "ruff": {

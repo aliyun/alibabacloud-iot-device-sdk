@@ -147,6 +147,48 @@ function ignoreTripleWithConfig(config){
   return config;
 }
 
+// 获取当前sdk运行环境
+// 支付宝小程序:alipay-min 
+// 微信小程序:weixin-min
+// 浏览器：broswer
+// node环境：node
+// 命令行:cli
+let RTEvn = '';
+function getRTEvn(){
+  // 支付宝小程序运行环境 不完全可靠
+  if(typeof my !== 'undefined' && (my.navigateToMiniProgram || my.navigateBackMiniProgram)){
+    return "alipay-min";
+  }
+  // 微信小程序判断 不完全可靠
+  if(typeof wx !== 'undefined' && (wx.navigateToMiniProgram || wx.navigateBackMiniProgram)){
+    return "weixin-min";
+  }
+  // 浏览器环境判断
+  if(
+      (typeof window !== 'undefined' && typeof window.document !== 'undefined') || 
+      (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope)
+    )
+  {
+    return "broswer";
+  }
+  // node环境
+  if(typeof module !== 'undefined' && module.exports){
+    return "node";
+  }
+
+  // 返回主动设置的环境值
+  if(RTEvn !== ''){
+    return RTEvn;
+  }
+
+  // 其他
+  return "unknown";
+
+}
+function setRTEvn(evn){
+  RTEvn = evn;
+}
+
 
 exports.ignoreTripleWithConfig = ignoreTripleWithConfig;
 exports.getIP = getIP;
@@ -157,3 +199,5 @@ exports.signUtil = signUtil;
 exports.createDebug = createDebug;
 exports.register = register;
 exports.isJsonString = isJsonString;
+exports.getRTEvn = getRTEvn;
+exports.setRTEvn = setRTEvn;
