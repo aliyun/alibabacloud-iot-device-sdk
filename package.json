@@ -26,8 +26,7 @@
     "test": "jest --coverage ./test/",
     "test:dev": "jest --coverage --watch ./test/",
     "rap": "npm run lib && rm -rf rap && mkdir rap && cp -R lib rap && cp package.json rap && sed 's/npm/rap/g' README.md > rap/README.md && cd rap && rap publish",
-    "dist": "npm run lib && rm -rf dist/ && mkdir dist && browserify lib/index.js -s iot| uglifyjs -c > dist/aliyun-iot-device-sdk.min.js",
-    "buildJS": "npm run lib && rm -rf dist/ && mkdir dist && browserify lib/index.js -s iot> dist/aliyun-iot-device-sdk.js",
+    "buildJS": "npm run lib && rimraf dist/ && mkdirp dist/ && browserify lib/index.js -s iot > dist/aliyun-iot-device-sdk.js && uglifyjs < dist/aliyun-iot-device-sdk.js > dist/aliyun-iot-device-sdk.min.js",
     "pubus": "rm -rf unstabitily && mkdir unstabitily && cp package.unstabitily.json unstabitily/ && mv ./unstabitily/package.unstabitily.json ./unstabitily/package.json &&   cp README.md ./unstabitily && cp -r lib/ ./unstabitily  && tnpm publish ./unstabitily/"
   },
   "jest": {
@@ -49,6 +48,8 @@
     "babel-preset-env": "^1.6.1",
     "browserify": "^16.2.2",
     "jest": "^22.0.4",
+    "mkdirp": "^0.5.1",
+    "rimraf": "^2.6.3",
     "uglify-js": "^3.4.5"
   },
   "dependencies": {
