@@ -1,5 +1,6 @@
 const mqtt = require('mqtt');
 const { register } = require('./utils');
+import packageJson from '../package.json'
 
 const aliyunIot = {
   device: config => {
@@ -11,7 +12,8 @@ const aliyunIot = {
     return new Gateway(config);
   },
   register,
-  mqtt
+  mqtt,
+  sdkver:packageJson.version
 };
 
 module.exports = aliyunIot;

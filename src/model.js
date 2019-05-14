@@ -2,9 +2,11 @@ import {
   ALIYUN_BROKER_METHODS_TEMPLATE as METHODS_TEMPLATE,
   ALIYUN_BROKER_TOPICS as BROKER_TOPICS
 } from './const'
+import packageJson from '../package.json'
+
 const {
   hmacSign,
-  getRTEvn
+  getSDKLanguage
 } = require('./utils');
 const util = require('util');
 
@@ -104,13 +106,15 @@ export default class Model {
    * signmethod：签名算法，支持hmacmd5，hmacsha1，hmacsha256和 sha256，默认为hmacmd5。
    * timestamp: 可选
    */
-  genConnectPrarms() {
+  genConnectPrarms1() {
+    const lang = getSDKLanguage();
+    const extra = `lan=${lang},_v=${packageJson.version}` 
     let params =  {
-      clientId: `${this.clientId}|securemode=${
-            this.securemode
-        },
+      clientId: `
+        ${this.clientId}|securemode=${this.securemode},
         signmethod=hmac${this.signAlgorithm},
-        timestamp=${this.timestamp}|`,
+        timestamp=${this.timestamp}|
+      `,
       username: `${this.deviceName}&${this.productKey}`,
       password: hmacSign(
         this.signAlgorithm,
@@ -122,15 +126,39 @@ export default class Model {
       keepalive: this.keepalive,
       clean: this.clean,
     }
+    console.log("params",params);
     // 支付宝小程序api全局对象my
-    if(getRTEvn()==='alipay-min'){
+    if(lang==='JS|Ali'){
       params.my = my;
     }
     return params;
   }
 
-  getLogoutTopic(pk,dn) {
-    
+  genConnectPrarms() {
+    const lang = getSDKLanguage();
+    const extra = `lan=${lang},_v=${packageJson.version}|` 
+    console.log('extra',extra);
+    // const extra =''
+    let params =  {
+      clientId:`${this.clientId}|securemode=${this.securemode },signmethod=hmac${this.signAlgorithm},timestamp=${this.timestamp},${extra}`,
+      username: `${this.deviceName}&${this.productKey}`,
+      password: hmacSign(
+        this.signAlgorithm,
+        this.deviceSecret,
+        `clientId${this.clientId}deviceName${this.deviceName}productKey${
+            this.productKey
+            }timestamp${this.timestamp}`
+      ),
+      keepalive: this.keepalive,
+      clean: this.clean,
+    }
+    console.log("params",params);
+
+    // 支付宝小程序api全局对象my
+    if(lang==='JS|Ali'){
+      params.my = my;
+    }
+    return params;
   }
 
   // 初始化连接参数

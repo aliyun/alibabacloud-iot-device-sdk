@@ -163,21 +163,23 @@ function tripleIgnoreCase(config){
   return config;
 }
 
-// 获取当前sdk运行环境
-// 支付宝小程序:alipay-min 
-// 微信小程序:weixin-min
-// 浏览器：broswer
-// node环境：node
-// 命令行:cli
-let RTEvn = '';
-function getRTEvn(){
+// 获取当前sdk版本
+// 支付宝小程序:JS|Ali
+// 微信小程序:JS|WX
+// 浏览器：JS|Broswer  
+// node环境：NodeJS
+// 命令行:JS|CLI
+// 未知：JS|UNKNOW
+let LANG = 'JS|UNKNOW';
+
+function getSDKLanguage(){
   // 支付宝小程序运行环境 不完全可靠
   if(typeof my !== 'undefined' && (my.navigateToMiniProgram || my.navigateBackMiniProgram)){
-    return "alipay-min";
+    return "JS|Ali";
   }
   // 微信小程序判断 不完全可靠
   if(typeof wx !== 'undefined' && (wx.navigateToMiniProgram || wx.navigateBackMiniProgram)){
-    return "weixin-min";
+    return "JS|WX";
   }
   // 浏览器环境判断
   if(
@@ -185,24 +187,19 @@ function getRTEvn(){
       (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope)
     )
   {
-    return "broswer";
+    return "JS|Broswer ";
   }
   // node环境
   if(typeof module !== 'undefined' && module.exports){
-    return "node";
+    return "NodeJS";
   }
 
   // 返回主动设置的环境值
-  if(RTEvn !== ''){
-    return RTEvn;
-  }
-
-  // 其他
-  return "unknown";
+  return LANG;
 
 }
-function setRTEvn(evn){
-  RTEvn = evn;
+function setSDKLanguage(lang){
+  LANG = lang;
 }
 
 
@@ -217,5 +214,5 @@ exports.signUtil = signUtil;
 exports.createDebug = createDebug;
 exports.register = register;
 exports.isJsonString = isJsonString;
-exports.getRTEvn = getRTEvn;
-exports.setRTEvn = setRTEvn;
+exports.getSDKLanguage = getSDKLanguage;
+exports.setSDKLanguage = setSDKLanguage;

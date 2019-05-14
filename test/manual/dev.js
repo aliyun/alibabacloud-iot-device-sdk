@@ -1,13 +1,13 @@
 const aliyunIot = require('../../lib');
 const fixtures = require('../../test/fixtures');
 
-const device = aliyunIot.device(fixtures.sub_device3);
+// const device = aliyunIot.device(fixtures.sub_device3);
 
-// const device = aliyunIot.device({
-//   "ProductKey": "a1YPDpMvd5t",
-//   "DeviceName": "base_sdk_device2",
-//   "DeviceSecret": "WnuQaINuj8oJva7R2vJGwds5w9PqF9VT"
-// });
+const device = aliyunIot.device({
+  "ProductKey": "a1YPDpMvd5t",
+  "DeviceName": "base_sdk_device2",
+  "DeviceSecret": "WnuQaINuj8oJva7R2vJGwds5w9PqF9VT"
+});
 
 
 device.subscribe('/a1YPDpMvd5t/base_sdk_device2/get');

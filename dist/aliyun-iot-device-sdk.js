@@ -3190,6 +3190,12 @@ module.exports = Gateway;
 },{"./device":11,"./subdevice":15,"./utils":16,"util":282}],13:[function(require,module,exports){
 'use strict';
 
+var _package = require('../package.json');
+
+var _package2 = _interopRequireDefault(_package);
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
 var mqtt = require('mqtt');
 
 var _require = require('./utils'),
@@ -3205,24 +3211,12 @@ var aliyunIot = {
     return new Gateway(config);
   },
   register: register,
-  mqtt: mqtt
+  mqtt: mqtt,
+  sdkver: _package2.default.version
 };
 
-// if (typeof window !== 'undefined' && typeof location !== 'undefined') {
-//   window.aliyunIot = aliyunIot;
-// }
-
-
-// if (typeof window !== 'undefined') {
-//   window.aliyunIot = aliyunIot;
-// }
-// if (typeof global !== 'undefined') {
-//   global.aliyunIot = aliyunIot;
-// }
-
-
 module.exports = aliyunIot;
-},{"./device":11,"./gateway":12,"./utils":16,"mqtt":3}],14:[function(require,module,exports){
+},{"../package.json":288,"./device":11,"./gateway":12,"./utils":16,"mqtt":3}],14:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -3233,11 +3227,17 @@ var _createClass = function () { function defineProperties(target, props) { for 
 
 var _const = require('./const');
 
+var _package = require('../package.json');
+
+var _package2 = _interopRequireDefault(_package);
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
 var _require = require('./utils'),
     hmacSign = _require.hmacSign,
-    getRTEvn = _require.getRTEvn;
+    getSDKLanguage = _require.getSDKLanguage;
 
 var util = require('util');
 
@@ -3364,23 +3364,46 @@ var Model = function () {
      */
 
   }, {
-    key: 'genConnectPrarms',
-    value: function genConnectPrarms() {
+    key: 'genConnectPrarms1',
+    value: function genConnectPrarms1() {
+      var lang = getSDKLanguage();
+      var extra = 'lan=' + lang + ',_v=' + _package2.default.version;
       var params = {
-        clientId: this.clientId + '|securemode=' + this.securemode + ',\n        signmethod=hmac' + this.signAlgorithm + ',\n        timestamp=' + this.timestamp + '|',
+        clientId: '\n        ' + this.clientId + '|securemode=' + this.securemode + ',\n        signmethod=hmac' + this.signAlgorithm + ',\n        timestamp=' + this.timestamp + '|\n      ',
         username: this.deviceName + '&' + this.productKey,
         password: hmacSign(this.signAlgorithm, this.deviceSecret, 'clientId' + this.clientId + 'deviceName' + this.deviceName + 'productKey' + this.productKey + 'timestamp' + this.timestamp),
         keepalive: this.keepalive,
         clean: this.clean
-        // 支付宝小程序api全局对象my
-      };if (getRTEvn() === 'alipay-min') {
+      };
+      console.log("params", params);
+      // 支付宝小程序api全局对象my
+      if (lang === 'JS|Ali') {
         params.my = my;
       }
       return params;
     }
   }, {
-    key: 'getLogoutTopic',
-    value: function getLogoutTopic(pk, dn) {}
+    key: 'genConnectPrarms',
+    value: function genConnectPrarms() {
+      var lang = getSDKLanguage();
+      var extra = 'lan=' + lang + ',_v=' + _package2.default.version + '|';
+      console.log('extra', extra);
+      // const extra =''
+      var params = {
+        clientId: this.clientId + '|securemode=' + this.securemode + ',signmethod=hmac' + this.signAlgorithm + ',timestamp=' + this.timestamp + ',' + extra,
+        username: this.deviceName + '&' + this.productKey,
+        password: hmacSign(this.signAlgorithm, this.deviceSecret, 'clientId' + this.clientId + 'deviceName' + this.deviceName + 'productKey' + this.productKey + 'timestamp' + this.timestamp),
+        keepalive: this.keepalive,
+        clean: this.clean
+      };
+      console.log("params", params);
+
+      // 支付宝小程序api全局对象my
+      if (lang === 'JS|Ali') {
+        params.my = my;
+      }
+      return params;
+    }
 
     // 初始化连接参数
 
@@ -3522,7 +3545,7 @@ exports.default = Model;
 
 
 module.exports = Model;
-},{"./const":10,"./utils":16,"util":282}],15:[function(require,module,exports){
+},{"../package.json":288,"./const":10,"./utils":16,"util":282}],15:[function(require,module,exports){
 'use strict';
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
@@ -3729,41 +3752,38 @@ function tripleIgnoreCase(config) {
   return config;
 }
 
-// 获取当前sdk运行环境
-// 支付宝小程序:alipay-min 
-// 微信小程序:weixin-min
-// 浏览器：broswer
-// node环境：node
-// 命令行:cli
-var RTEvn = '';
-function getRTEvn() {
+// 获取当前sdk版本
+// 支付宝小程序:JS|Ali
+// 微信小程序:JS|WX
+// 浏览器：JS|Broswer  
+// node环境：NodeJS
+// 命令行:JS|CLI
+// 未知：JS|UNKNOW
+var LANG = 'JS|UNKNOW';
+
+function getSDKLanguage() {
   // 支付宝小程序运行环境 不完全可靠
   if (typeof my !== 'undefined' && (my.navigateToMiniProgram || my.navigateBackMiniProgram)) {
-    return "alipay-min";
+    return "JS|Ali";
   }
   // 微信小程序判断 不完全可靠
   if (typeof wx !== 'undefined' && (wx.navigateToMiniProgram || wx.navigateBackMiniProgram)) {
-    return "weixin-min";
+    return "JS|WX";
   }
   // 浏览器环境判断
   if (typeof window !== 'undefined' && typeof window.document !== 'undefined' || typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope) {
-    return "broswer";
+    return "JS|Broswer ";
   }
   // node环境
   if (typeof module !== 'undefined' && module.exports) {
-    return "node";
+    return "NodeJS";
   }
 
   // 返回主动设置的环境值
-  if (RTEvn !== '') {
-    return RTEvn;
-  }
-
-  // 其他
-  return "unknown";
+  return LANG;
 }
-function setRTEvn(evn) {
-  RTEvn = evn;
+function setSDKLanguage(lang) {
+  LANG = lang;
 }
 
 exports.tripleIgnoreCase = tripleIgnoreCase;
@@ -3777,8 +3797,8 @@ exports.signUtil = signUtil;
 exports.createDebug = createDebug;
 exports.register = register;
 exports.isJsonString = isJsonString;
-exports.getRTEvn = getRTEvn;
-exports.setRTEvn = setRTEvn;
+exports.getSDKLanguage = getSDKLanguage;
+exports.setSDKLanguage = setSDKLanguage;
 }).call(this,require('_process'))
 },{"_process":232,"axios":31,"crypto":97,"os":220,"qs":241}],17:[function(require,module,exports){
 var asn1 = exports;
@@ -35150,8 +35170,6 @@ module.exports={
     "test": "jest --coverage ./test/",
     "test:dev": "jest --coverage --watch ./test/",
     "rap": "npm run lib && rm -rf rap && mkdir rap && cp -R lib rap && cp package.json rap && sed 's/npm/rap/g' README.md > rap/README.md && cd rap && rap publish",
-    "dist": "npm run lib && rm -rf dist/ && mkdir dist && browserify lib/index.js -s iot| uglifyjs -c > dist/aliyun-iot-device-sdk.min.js",
-    "buildJS1": "npm run lib && rm -rf dist/ && mkdir dist && browserify lib/index.js -s iot > dist/aliyun-iot-device-sdk.js",
     "buildJS": "npm run lib && rimraf dist/ && mkdirp dist/ && browserify lib/index.js -s iot > dist/aliyun-iot-device-sdk.js && uglifyjs < dist/aliyun-iot-device-sdk.js > dist/aliyun-iot-device-sdk.min.js",
     "pubus": "rm -rf unstabitily && mkdir unstabitily && cp package.unstabitily.json unstabitily/ && mv ./unstabitily/package.unstabitily.json ./unstabitily/package.json &&   cp README.md ./unstabitily && cp -r lib/ ./unstabitily  && tnpm publish ./unstabitily/"
   },

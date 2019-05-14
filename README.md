@@ -677,6 +677,7 @@ gateway.on('connect', () => {
 
 #### todo  
 - 优化代码 _wrapServiceSubscribe使用通配符订阅消息
+- 增加模组信息参数
 
 #### 1.1.0 (未发布)
 - 增加onService中reply函数,并支持同步和异步调用
@@ -706,6 +707,7 @@ device.onService('wakeup_sync', function (res,reply) {
 - 增加onConfig方法用于订阅云端远程配置更新
 - 增加部分功能的example
 - 增加对微信小程序的支持，使用方式
+- 增加支付宝小程序使用
 
 ````javascript
 <!-- 1：引入对象 -->

@@ -26,7 +26,7 @@
     "test": "jest --coverage ./test/",
     "test:dev": "jest --coverage --watch ./test/",
     "rap": "npm run lib && rm -rf rap && mkdir rap && cp -R lib rap && cp package.json rap && sed 's/npm/rap/g' README.md > rap/README.md && cd rap && rap publish",
-    "buildJS": "npm run lib && rimraf dist/ && mkdirp dist/ && browserify lib/index.js -s iot > dist/aliyun-iot-device-sdk.js && uglifyjs < dist/aliyun-iot-device-sdk.js > dist/aliyun-iot-device-sdk.min.js",
+    "build": "npm run lib && rimraf dist/ && mkdirp dist/ && browserify lib/index.js -s iot > dist/aliyun-iot-device-sdk.js && uglifyjs < dist/aliyun-iot-device-sdk.js > dist/aliyun-iot-device-sdk.min.js",
     "pubus": "rm -rf unstabitily && mkdir unstabitily && cp package.unstabitily.json unstabitily/ && mv ./unstabitily/package.unstabitily.json ./unstabitily/package.json &&   cp README.md ./unstabitily && cp -r lib/ ./unstabitily  && tnpm publish ./unstabitily/"
   },
   "jest": {
