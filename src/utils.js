@@ -144,7 +144,7 @@ function tripleExpectNotNull(triple) {
   }
 }
 
-// todo:三元组忽略大小写 triple ignore case
+// 三元组忽略大小写 triple ignore case
 function tripleIgnoreCase(config){
   Object.keys(config).forEach((originKey) => {
     let key = originKey.toLowerCase();

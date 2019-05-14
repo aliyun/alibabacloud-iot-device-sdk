@@ -30,9 +30,7 @@ class Device extends EventEmitter {
     }
     // subcribe client event and preset topic
     this._subscribeClientEvent();
-  
-    //上报客户端sdk信息 todo:
-    // this._reportSDKInfo();
+
     this.serveCB = [];
     this._onShadowCB;
     this._onConfigCB = nilFn;
@@ -191,7 +189,7 @@ class Device extends EventEmitter {
     }, cb);
   }
 
-  //当远程配置下发到设备触发 todo
+  //当远程配置下发到设备触发
   onConfig(cb) {
     this._onConfigCB = cb;
   }
@@ -464,7 +462,8 @@ class Device extends EventEmitter {
     return undefined;
   }
 
-    //上报sdk版本信息
+  //上报sdk版本信息
+  // 目前使用cliectid方式上报sdk版本信息
   _reportSDKInfo() {
     const networkInfo = `WiFi|` + getIP();
     let sdkInfo = [];
