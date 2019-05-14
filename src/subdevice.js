@@ -7,7 +7,6 @@ class SubDevice extends Device {
   
   constructor(gateway,config = {}) {
     super(config,gateway._mqttClient);
-    this.model = new Model(config);
     this.gateway = gateway;
   }
 }

@@ -52,11 +52,22 @@ exports.sub_device2 = {
   deviceName: 'sub_device2',
   deviceSecret: 'qp5ZAHBffAjKgqjDQ2bgiReNWE5uBKDW'
 };
-exports.sub_device3 ={
+exports.sub_device3 = {
   "ProductKey": "a1aq9sQk2JE",
   "DeviceName": "sub_device3",
   "DeviceSecret": "yl2qWGfww43eXrePsHCDhKH5y8URJyJK"
 };
+exports.sub_device4 = {
+  "ProductKey": "a1aq9sQk2JE",
+  "DeviceName": "sub_device4",
+  "DeviceSecret": "EIq7cCbjblm1Lb13Z2tXhmw04y1Lx0P6"
+};
+exports.sub_device5 = {
+  "ProductKey": "a1aq9sQk2JE",
+  "DeviceName": "sub_device5",
+  "DeviceSecret": "fe7pLZGwNm4uy8Vm7Mu5EqAoR8cO52na"
+};
+
 
 
 // 基础版sdk开发

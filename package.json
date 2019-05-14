@@ -38,10 +38,10 @@
     ]
   },
   "author": "玄彦",
-  "email":"xuanyan.lyw@alibaba-inc.com",
-  "url":"https://github.com/aliyun/aliyun-iot-device-sdk-js/issues",
+  "email": "xuanyan.lyw@alibaba-inc.com",
+  "url": "https://github.com/aliyun/aliyun-iot-device-sdk-js/issues",
   "license": "MIT",
-  "files":[
+  "files": [
     "dist/"
   ],
   "devDependencies": {

@@ -67,8 +67,7 @@ class Gateway extends Device {
     tripleExpectNotNull(device);
     // 创建subdevice
     const subDevice = new SubDevice(this,device); 
-    console.log(">>> subdevice _subscribePresetTopic")
-    this._subscribePresetTopic(subDevice);
+  
     this._addSubDevices(subDevice);
     // 通过网关登录
     this._publishAlinkMessage({
@@ -77,19 +76,16 @@ class Gateway extends Device {
       },(resp)=>{
         cb(resp);
         if (resp.code === 200) {
+          // subdevice subscribe topic must until subdevice login succeed!
+          this._subscribePresetTopic(subDevice);
           subDevice.emit("connect");
         } else {
-          subDevice.emit("errorerror",resp);
+          subDevice.emit("error",resp);
         }
       }
-      
     );
     
     return subDevice;
-
-    // return this._careteSubDevice(device);
-    // const sub = this.careteSubDevice(device);
-    // return sub;
   }
   logout(params, cb) {
     this._publishAlinkMessage({
@@ -133,19 +129,19 @@ class Gateway extends Device {
     try {
       let res = JSON.parse(message.toString());
       let subDevice;
-      console.log('gateway _mqttCallbackHandler',topic,res);
+      // console.log('gateway _mqttCallbackHandler',topic,res);
 
       //处理子设备服务返回数据,同步或者异步方式
       subDevice = this._searchMqttMatchServiceTopicWithSubDevice(topic);
       if(subDevice){
-        console.log("_searchMqttMatchServiceTopicWithSubDevice");
+        // console.log("_searchMqttMatchServiceTopicWithSubDevice");
         subDevice._onReceiveService(topic,res);
         return; 
       }
       // 处理子设备影子服务回调
       subDevice = this._searchMqttMatchShadowTopicWithSubDevice(topic);
       if(subDevice){
-        console.log("_searchMqttMatchShadowTopicWithSubDevice");
+        // console.log("_searchMqttMatchShadowTopicWithSubDevice");
         subDevice._onShadowCB(res);
         return; 
       }
@@ -153,7 +149,7 @@ class Gateway extends Device {
       // 远程配置回调
       subDevice = this._searchMqttMatchConfigTopicWithSubDevice(topic);
       if(subDevice){
-        console.log("_searchMqttMatchConfigTopicWithSubDevice");
+        // console.log("_searchMqttMatchConfigTopicWithSubDevice");
         subDevice._onConfigCB(res);
         return; 
       }
@@ -161,7 +157,7 @@ class Gateway extends Device {
       //其他通用回调
       const {id: cbID} = res;
       const callback = this._getAllSubDevicesCallback(cbID);
-      console.log("gateway通用回调",topic,callback,message);
+      // console.log("gateway通用回调",topic,callback,message);
       if(callback){callback(res);}
 
     } catch (e) {
@@ -186,13 +182,7 @@ class Gateway extends Device {
   }
   // 子设备的远程配置topic
   _searchMqttMatchConfigTopicWithSubDevice(topic){
-    
-    
     return this._getSubDevices().find(subDevice => {
-      // console.log('>>>topic',topic);
-      // console.log('>>>subDevice.model.CONFIG_REPLY_TOPIC',subDevice.model.CONFIG_REPLY_TOPIC);
-      // console.log('>>>mqttMatch(subDevice.model.getWildcardConfigTopic(),topic)',mqttMatch(subDevice.model.getWildcardConfigTopic(),topic));
-      // console.log('>>>mqttNotMatch(subDevice.model.CONFIG_REPLY_TOPIC,topic)',mqttNotMatch(subDevice.model.CONFIG_REPLY_TOPIC,topic));
       return mqttMatch(subDevice.model.getWildcardConfigTopic(),topic) && 
       (mqttNotMatch(subDevice.model.CONFIG_REPLY_TOPIC,topic) === true)
     });
@@ -216,11 +206,7 @@ class Gateway extends Device {
       if(cb) {
         callback = cb;
       }
-      return;
-      // console.log('>>>subDevice cbID',subDevice._cb);
-      // console.log('>>>subDevice cb',subDevice._cb);
-      // console.log('>>>find subDevice cb!!!',cb);
-      
+      return;      
     }); 
     return callback;
   }

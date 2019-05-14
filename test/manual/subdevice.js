@@ -6,7 +6,7 @@ const gateway = aliyunIot.gateway(fixtures.sdk_gateway2);
 // const dsad = aliyunIot.device(fixtures.sub_device3);
 let sub1; 
 gateway.on('message', function(topic, payload){
-  console.log(topic.toString(),payload.toString());
+  console.log("message>>>" , topic.toString(),payload.toString());
 });
 
 gateway.on('error', (err)=>{
@@ -16,7 +16,7 @@ gateway.on('error', (err)=>{
 gateway.on('connect', () => {
   //子设备1上线
   sub1 = gateway.login(
-    fixtures.sub_device3,
+    fixtures.sub_device5,
     (res) => {
     console.log('>>>>> sub1 login ...');
   });
@@ -29,11 +29,11 @@ gateway.on('connect', () => {
     console.log(">>>>sub1 connected!");
 
 
-    sub1.postProps({
-      state: 0
-    },(res)=>{
-      console.log(">>>>sub1 postProps!",res);
-    });
+    // sub1.postProps({
+    //   state: 0
+    // },(res)=>{
+    //   console.log(">>>>sub1 postProps!",res);
+    // });
     // sub1.postProps({
     //   state: 0
     // },(res)=>{
@@ -64,20 +64,21 @@ gateway.on('connect', () => {
     //     console.log(res);
     //   }
     // );
-    sub1.getConfig((res) => {
-      console.log('>>>> getConfig:',res.data);
-    });
-    // 订阅远程配置 todo:be some problem
-    sub1.onConfig((res) => {
-      console.log("onConfig,res:",res);
-    });
 
-    //订阅影子设备返回值
-    sub1.onShadow((res) => {
-      console.log('获取最新设备影子,%o', res);
-    })
-    // 设备主动获取影子 ok
-    sub1.getShadow();
+    // sub1.getConfig((res) => {
+    //   console.log('>>>> getConfig:',res.data);
+    // });
+    // // 订阅远程配置 todo:be some problem
+    // sub1.onConfig((res) => {
+    //   console.log("onConfig,res:",res);
+    // });
+    
+    // //订阅影子设备返回值
+    // sub1.onShadow((res) => {
+    //   console.log('获取最新设备影子,%o', res);
+    // })
+    // // 设备主动获取影子 ok
+    // sub1.getShadow();
   });
 
 
