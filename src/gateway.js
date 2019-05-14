@@ -1,16 +1,23 @@
 const util = require('util');
 // const Device = require('./device');
 const Device = require('./device');
+const SubDevice = require('./subdevice');
 
 const {
   createDebug,
-  signUtil
+  signUtil,
+  tripleExpectNotNull,
+  tripleIgnoreCase,
+  mqttMatch,
+  mqttNotMatch
 } = require('./utils');
 const debug = createDebug('gateway');
 
 class Gateway extends Device {
   constructor(...args) {
     super(...args);
+    // 子设备管理
+    this.subDevices = [];
     // 调试模式标识
     debug('debugger mode');
   }
@@ -54,15 +61,31 @@ class Gateway extends Device {
     );
   }
   login(device, cb) {
+    // 忽略三元组大小写
+    tripleIgnoreCase(device);
+    //  校验三元组非空
+    tripleExpectNotNull(device);
+    // 创建subdevice
+    const subDevice = new SubDevice(this,device); 
+  
+    this._addSubDevices(subDevice);
+    // 通过网关登录
     this._publishAlinkMessage({
         params: signUtil(device),
         pubTopic: this.model.LOGIN_TOPIC,
-      },
-      cb
+      },(resp)=>{
+        cb(resp);
+        if (resp.code === 200) {
+          // subdevice subscribe topic must until subdevice login succeed!
+          this._subscribePresetTopic(subDevice);
+          subDevice.emit("connect");
+        } else {
+          subDevice.emit("error",resp);
+        }
+      }
     );
-    return this._careteSubDevice(device);
-    // const sub = this.careteSubDevice(device);
-    // return sub;
+    
+    return subDevice;
   }
   logout(params, cb) {
     this._publishAlinkMessage({
@@ -75,7 +98,7 @@ class Gateway extends Device {
 
   /*
    * 网关动态注册子设备
-     "params": [
+    "params": [
       {
         "deviceName": "deviceName1234",
         "productKey": "1234556554"
@@ -98,32 +121,95 @@ class Gateway extends Device {
     );
   }
 
-  // 内部方法，创建一个子设备
-  _careteSubDevice(device) {
-    const subDevice = new Device(device);
-    subDevice._type = "subdevice";
-    subDevice._parent = this;
-    //子设备标识
-    subDevice._isSubdevice = true;
-    const subArrayKey = `${device.productKey}&${device.deviceName}`
-    // 初始化subdevices数组
-    if (this._subDevices == undefined) {
-      this._subDevices = {};
+  /*
+  * 重写device message方法，因为消息只发送到网关，所以要通过网关转发到子设备
+  */ 
+  _mqttCallbackHandler(topic,message) {
+    // 开始处理返回值
+    try {
+      let res = JSON.parse(message.toString());
+      let subDevice;
+      // console.log('gateway _mqttCallbackHandler',topic,res);
+
+      //处理子设备服务返回数据,同步或者异步方式
+      subDevice = this._searchMqttMatchServiceTopicWithSubDevice(topic);
+      if(subDevice){
+        // console.log("_searchMqttMatchServiceTopicWithSubDevice");
+        subDevice._onReceiveService(topic,res);
+        return; 
+      }
+      // 处理子设备影子服务回调
+      subDevice = this._searchMqttMatchShadowTopicWithSubDevice(topic);
+      if(subDevice){
+        // console.log("_searchMqttMatchShadowTopicWithSubDevice");
+        subDevice._onShadowCB(res);
+        return; 
+      }
+
+      // 远程配置回调
+      subDevice = this._searchMqttMatchConfigTopicWithSubDevice(topic);
+      if(subDevice){
+        // console.log("_searchMqttMatchConfigTopicWithSubDevice");
+        subDevice._onConfigCB(res);
+        return; 
+      }
+    
+      //其他通用回调
+      const {id: cbID} = res;
+      const callback = this._getAllSubDevicesCallback(cbID);
+      // console.log("gateway通用回调",topic,callback,message);
+      if(callback){callback(res);}
+
+    } catch (e) {
+      console.log('_mqttCallbackHandler error',e)
     }
-    //保存子设备
-    if (this._getSubDevice(device) == undefined) {
-      this._subDevices.subArrayKey = subDevice;
-    }
-    return subDevice;
+ 
+    // device 、gateway message handler
+    super._mqttCallbackHandler(topic,message);
   }
 
-  // 找到子设备
-  _getSubDevice(device) {
-    const subArrayKey = `${device.productKey}&${device.deviceName}`;
-    if (this._subDevices == undefined) return;
-    return this._subDevices.subArrayKey
+  // 子设备的服务topic
+  _searchMqttMatchServiceTopicWithSubDevice(topic){
+    return this._getSubDevices().find(subDevice => 
+      mqttMatch(subDevice.model.getWildcardServiceTopic(),topic) || mqttMatch(subDevice.model.RRPC_REQ_TOPIC,topic)
+    );
+  }
+   // 子设备影子设备topic
+  _searchMqttMatchShadowTopicWithSubDevice(topic){
+    return this._getSubDevices().find(subDevice => 
+      mqttMatch(subDevice.model.SHADOW_SUBSCRIBE_TOPIC,topic)
+    );
+  }
+  // 子设备的远程配置topic
+  _searchMqttMatchConfigTopicWithSubDevice(topic){
+    return this._getSubDevices().find(subDevice => {
+      return mqttMatch(subDevice.model.getWildcardConfigTopic(),topic) && 
+      (mqttNotMatch(subDevice.model.CONFIG_REPLY_TOPIC,topic) === true)
+    });
   }
 
+  _getSubDevices(){
+    if(!this.subDevices) {
+      this.subDevices = [];
+    }
+    return this.subDevices;
+  }
+  _addSubDevices(subDevice){
+    this._getSubDevices().push(subDevice);
+  }
+
+  _getAllSubDevicesCallback(cbID) {
+    let callback;
+    this._getSubDevices().forEach(subDevice => {
+      // console.log('>>>subDevice',subDevice);
+      let cb = subDevice._popCallback(cbID);
+      if(cb) {
+        callback = cb;
+      }
+      return;      
+    }); 
+    return callback;
+  }
 }
 
 module.exports = Gateway;

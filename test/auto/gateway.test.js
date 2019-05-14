@@ -1,7 +1,5 @@
 const Buffer = require('buffer').Buffer;
-const util = require('util');
 const aliyunIot = require('../../lib');
-const Device = require('../../lib/device');
 const fixtures = require('../fixtures');
 
 let gateway;
@@ -33,8 +31,8 @@ describe('device test', () => {
         //网关获子设备 ok, aliyunIot.gateway#getTopo()
         gateway.getTopo(
           (res)=>{
-              console.log('>>>>>getTopo',res)
-              done();
+            console.log('>>>>>getTopo',res)
+            done();
           }
       );
     } catch (e) { console.error(e)}

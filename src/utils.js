@@ -23,6 +23,10 @@ function mqttMatch(filter, topic) {
   return length === topicArray.length
 }
 
+function mqttNotMatch(filter, topic){
+  return !mqttMatch(filter, topic)
+}
+
 function createGuid() {
   let id = 1;
   return function () {
@@ -44,7 +48,7 @@ function isJsonString(str) {
 function signUtil(deviceConfig, signMethod = 'sha1') {
   const timestamp = Date.now();
   // 忽略三元组大小写
-  ignoreTripleWithConfig(deviceConfig);
+  tripleIgnoreCase(deviceConfig);
   const device = {
     productKey: deviceConfig.productKey,
     deviceName: deviceConfig.deviceName,
@@ -62,7 +66,7 @@ function signUtil(deviceConfig, signMethod = 'sha1') {
 function deviceRegisterSign(productKey, productSecret, deviceName, random, signMethod = 'sha1') {
   // 忽略三元组大小写
   const config = { productKey,productSecret,deviceName};
-  ignoreTripleWithConfig(config);
+  tripleIgnoreCase(config);
   // signMethod = `hmac${signMethod}`;
   const signcontent = `deviceName${config.deviceName}productKey${config.productKey}random${random}`;
   // console.log("deviceRegisterSign",signMethod,signcontent)
@@ -127,9 +131,21 @@ function register({
     cb(error);
   })
 }
+// 三元组不为空
+function tripleExpectNotNull(triple) {
+  if (typeof triple.productKey === 'undefined') {
+    throw new Error('productKey should not be empty');
+  }
+  if (typeof triple.deviceName === 'undefined') {
+    throw new Error('deviceName should not be empty');
+  }
+  if (typeof triple.deviceSecret === 'undefined') {
+    throw new Error('deviceSecret should not be empty');
+  }
+}
 
-//三元组忽略大小写
-function ignoreTripleWithConfig(config){
+// todo:三元组忽略大小写 triple ignore case
+function tripleIgnoreCase(config){
   Object.keys(config).forEach((originKey) => {
     let key = originKey.toLowerCase();
     switch (key) {
@@ -190,10 +206,12 @@ function setRTEvn(evn){
 }
 
 
-exports.ignoreTripleWithConfig = ignoreTripleWithConfig;
+exports.tripleIgnoreCase = tripleIgnoreCase;
+exports.tripleExpectNotNull = tripleExpectNotNull;
 exports.getIP = getIP;
 exports.hmacSign = hmacSign;
 exports.mqttMatch = mqttMatch;
+exports.mqttNotMatch = mqttNotMatch;
 exports.createGuid = createGuid;
 exports.signUtil = signUtil;
 exports.createDebug = createDebug;
