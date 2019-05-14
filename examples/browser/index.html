@@ -8,7 +8,7 @@
 
 
 <!-- <script src="https://gw-office.alipayobjects.com/basement_prod/944e410e-b23b-40fa-9fdf-8dc86937487a.js"></script> -->
-<script src="../../dist/aliyun-iot-device-sdk.min.js"></script>
+<script src="../../dist/aliyun-iot-device-sdk.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@3.12.0/dist/xterm.css" />
 <script src="https://cdn.jsdelivr.net/npm/xterm@3.12.0/dist/xterm.js"></script>
 <!-- nes -->
@@ -42,7 +42,7 @@
 
     function connect(){
       term.writeln('开始连接....')
-      device = aliyunIot.device(sdk_device2);
+      device = iot.device(sdk_device2);
       // 测试上报一条设备标签数据
       device.on('connect', () => {
         term.writeln('连接成功....')
