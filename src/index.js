@@ -14,17 +14,4 @@ const aliyunIot = {
   mqtt
 };
 
-// if (typeof window !== 'undefined' && typeof location !== 'undefined') {
-//   window.aliyunIot = aliyunIot;
-// }
-
-
-// if (typeof window !== 'undefined') {
-//   window.aliyunIot = aliyunIot;
-// }
-// if (typeof global !== 'undefined') {
-//   global.aliyunIot = aliyunIot;
-// }
-
-
 module.exports = aliyunIot;
