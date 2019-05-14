@@ -681,3 +681,5 @@ MQTT.js is only possible due to the excellent work of the following contributors
 ## License
 
 MIT
+
+last commit 93046a5

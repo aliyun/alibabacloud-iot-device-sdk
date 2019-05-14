@@ -6,7 +6,7 @@ const qs = require('qs');
 function hmacSign(type, secret, content) {
   return crypto
     .createHmac(type, secret)
-    .update(content)
+    .update(content) 
     .digest('hex');
 }
 
