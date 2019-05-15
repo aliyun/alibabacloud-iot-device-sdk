@@ -1,9 +1,9 @@
-const aliyunIot = require('../../lib');
+const iot = require('../../lib');
 const fixtures = require('../../test/fixtures');
 
-// const device = aliyunIot.device(fixtures.sub_device3);
+// const device = iot.device(fixtures.sub_device3);
 
-const device = aliyunIot.device({
+const device = iot.device({
   "ProductKey": "a1YPDpMvd5t",
   "DeviceName": "base_sdk_device2",
   "DeviceSecret": "WnuQaINuj8oJva7R2vJGwds5w9PqF9VT"

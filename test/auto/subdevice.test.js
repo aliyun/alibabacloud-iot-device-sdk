@@ -1,5 +1,5 @@
 const Buffer = require('buffer').Buffer;
-const aliyunIot = require('../../lib');
+const iot = require('../../lib');
 const fixtures = require('../fixtures');
 
 const sub_device3 = fixtures.sub_device3;
@@ -9,7 +9,7 @@ let postPropsSucceedStat = false;
 
 beforeAll(() => {
   return new Promise((resolve, reject) => {
-    gateway = aliyunIot.gateway({
+    gateway = iot.gateway({
       ...fixtures.sdk_gateway2
     });
     gateway.on('message', function(topic, payload){

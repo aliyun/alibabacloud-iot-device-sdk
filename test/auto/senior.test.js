@@ -1,13 +1,13 @@
 const Buffer = require('buffer').Buffer;
 const util = require('util');
-const aliyunIot = require('../../lib');
+const iot = require('../../lib');
 const Device = require('../../lib/device');
 const fixtures = require('../fixtures');
 
 let device;
 beforeAll(()=> {
   return new Promise((resolve, reject)=>{
-    device = aliyunIot.device({
+    device = iot.device({
       ...fixtures.sdk_device3
     });
     device.on('connect', () => {

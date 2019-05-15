@@ -1,6 +1,6 @@
 const Buffer = require('buffer').Buffer;
 const util = require('util');
-const aliyunIot = require('../../lib');
+const iot = require('../../lib');
 const fixtures = require('../../test/fixtures');
 
 const sub_device1 = fixtures.sub_device1;
@@ -8,7 +8,7 @@ const sub_device2 = fixtures.sub_device2;
 
 
 // sdk_gateway1
-const gateway = aliyunIot.gateway({
+const gateway = iot.gateway({
   ...fixtures.sdk_gateway1
 });
 // 测试上报一条设备标签数据
@@ -19,7 +19,7 @@ gateway.on('connect', () => {
 // 测试ok的
 function getewaybeok() {
 
-  //网关获子设备 ok, aliyunIot.gateway#getTopo()
+  //网关获子设备 ok, iot.gateway#getTopo()
   gateway.getTopo(
     (res) => {
       console.log('>>>>>getTopo')
@@ -27,7 +27,7 @@ function getewaybeok() {
       console.log(res.data)
     }
   );
-  // 添加topo ok  aliyunIot.gateway#addTopo()
+  // 添加topo ok  iot.gateway#addTopo()
   gateway.addTopo(
     [sub_device1, sub_device2],
     (res) => {

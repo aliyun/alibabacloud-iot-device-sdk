@@ -3200,7 +3200,7 @@ var mqtt = require('mqtt');
 var _require = require('./utils'),
     register = _require.register;
 
-var aliyunIot = {
+var iot = {
   device: function device(config) {
     var Device = require('./device');;
     return new Device(config);
@@ -3214,7 +3214,7 @@ var aliyunIot = {
   sdkver: _package2.default.version
 };
 
-module.exports = aliyunIot;
+module.exports = iot;
 },{"../package.json":288,"./device":11,"./gateway":12,"./utils":16,"mqtt":3}],14:[function(require,module,exports){
 'use strict';
 
@@ -35153,7 +35153,7 @@ module.exports={
     "linkEdge",
     "aliyun-iot-mqtt",
     "aliyun",
-    "aliyunIot",
+    "iot",
     "iothub",
     "linkdevelop",
     "alink",

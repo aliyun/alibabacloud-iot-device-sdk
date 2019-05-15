@@ -15,9 +15,9 @@ npm install aliyun-iot-device-sdk --save
 ## 设备接入云端
 
 ```javascript
-const aliyunIot = require('aliyun-iot-device-sdk');
+const iot = require('aliyun-iot-device-sdk');
 
-const device = aliyunIot.device({
+const device = iot.device({
   productKey: '<productKey>',
   deviceName: '<deviceName>',
   deviceSecret: '<deviceSecret>'
@@ -48,7 +48,7 @@ device.on('message', (topic, payload) => {
 
 ## IoT LinkPlatform高级版 API
 
-IoT 套件高级版封装了物模型定义与 Alink 异步协议，SDK 封装使得设备与云端通信时不需要关心 MQTT topic，只需要调用属性上报（<a href="#postProps"><code>aliyunIot.device#<b>postProps()</b></code></a>）、服务监听（<a href="#onService"><code>aliyunIot.device#<b>onService()</b></code></a>）、事件上报（<a href="#postEvent"><code>aliyunIot.device#<b>postEvent()</b></code></a>）等相关 API。
+IoT 套件高级版封装了物模型定义与 Alink 异步协议，SDK 封装使得设备与云端通信时不需要关心 MQTT topic，只需要调用属性上报（<a href="#postProps"><code>iot.device#<b>postProps()</b></code></a>）、服务监听（<a href="#onService"><code>iot.device#<b>onService()</b></code></a>）、事件上报（<a href="#postEvent"><code>iot.device#<b>postEvent()</b></code></a>）等相关 API。
 
 ### 设备属性上报
 
@@ -108,44 +108,44 @@ device.onService('wakeup_async', function (res,reply) {
 ## API
 
 设备相关
-* <a href="#device"><code>aliyunIot.<b>device()</b></code></a>
-* <a href="#publish"><code>aliyunIot.device#<b>publish()</b></code></a>
-* <a href="#subscribe"><code>aliyunIot.device#<b>subscribe()</b></code></a>
-* <a href="#unsubscribe"><code>aliyunIot.device#<b>unsubscribe()</b></code></a>
-* <a href="#postProps"><code>aliyunIot.device#<b>postProps()</b></code></a>
-* <a href="#postEvent"><code>aliyunIot.device#<b>postEvent()</b></code></a>
-* <a href="#onService"><code>aliyunIot.device#<b>onService()</b></code></a>
-* <a href="#end"><code>aliyunIot.device#<b>end()</b></code></a>
-* <a href="#postTags"><code>aliyunIot.postTags#<b>postTags()</b></code></a>
-* <a href="#deleteTags"><code>aliyunIot.deleteTags#<b>deleteTags()</b></code></a>
-* <a href="#getConfig"><code>aliyunIot.getConfig#<b>getConfig()</b></code></a>
-* <a href="#onConfig"><code>aliyunIot.onConfig#<b>onConfig</b></code></a>
-* <a href="#onShadow"><code>aliyunIot.onShadow#<b>onShadow()</b></code></a>
+* <a href="#device"><code>iot.<b>device()</b></code></a>
+* <a href="#publish"><code>iot.device#<b>publish()</b></code></a>
+* <a href="#subscribe"><code>iot.device#<b>subscribe()</b></code></a>
+* <a href="#unsubscribe"><code>iot.device#<b>unsubscribe()</b></code></a>
+* <a href="#postProps"><code>iot.device#<b>postProps()</b></code></a>
+* <a href="#postEvent"><code>iot.device#<b>postEvent()</b></code></a>
+* <a href="#onService"><code>iot.device#<b>onService()</b></code></a>
+* <a href="#end"><code>iot.device#<b>end()</b></code></a>
+* <a href="#postTags"><code>iot.postTags#<b>postTags()</b></code></a>
+* <a href="#deleteTags"><code>iot.deleteTags#<b>deleteTags()</b></code></a>
+* <a href="#getConfig"><code>iot.getConfig#<b>getConfig()</b></code></a>
+* <a href="#onConfig"><code>iot.onConfig#<b>onConfig</b></code></a>
+* <a href="#onShadow"><code>iot.onShadow#<b>onShadow()</b></code></a>
 
-* <a href="#getShadow"><code>aliyunIot.getShadow#<b>getShadow()</b></code></a>
-* <a href="#postShadow"><code>aliyunIot.postShadow#<b>postShadow()</b></code></a>
-* <a href="#deleteShadow"><code>aliyunIot.deleteShadow#<b>deleteShadow()</b></code></a>
+* <a href="#getShadow"><code>iot.getShadow#<b>getShadow()</b></code></a>
+* <a href="#postShadow"><code>iot.postShadow#<b>postShadow()</b></code></a>
+* <a href="#deleteShadow"><code>iot.deleteShadow#<b>deleteShadow()</b></code></a>
 
 网关相关（网关也可以使用设备相关的api）
-* <a href="#gateway"><code>aliyunIot.<b>gateway()</b></code></a>
-* <a href="#addTopo"><code>aliyunIot.gateway#<b>addTopo()</b></code></a>
-* <a href="#getTopo"><code>aliyunIot.gateway#<b>getTopo()</b></code></a>
-* <a href="#removeTopo"><code>aliyunIot.gateway#<b>removeTopo()</b></code></a>
-* <a href="#login"><code>aliyunIot.gateway#<b>login()</b></code></a>
-* <a href="#logout"><code>aliyunIot.gateway#<b>logout()</b></code></a>
+* <a href="#gateway"><code>iot.<b>gateway()</b></code></a>
+* <a href="#addTopo"><code>iot.gateway#<b>addTopo()</b></code></a>
+* <a href="#getTopo"><code>iot.gateway#<b>getTopo()</b></code></a>
+* <a href="#removeTopo"><code>iot.gateway#<b>removeTopo()</b></code></a>
+* <a href="#login"><code>iot.gateway#<b>login()</b></code></a>
+* <a href="#logout"><code>iot.gateway#<b>logout()</b></code></a>
 
 
 子设备
 * 与设备api相同，通过网关的login()方法返回子设备实例
 
 动态注册
-* <a href="#register"><code>aliyunIot(<b>register()</b></code></a>
-* <a href="#regiestSubDevice"><code>aliyunIot.gateway#<b>regiestSubDevice()</b></code></a>
+* <a href="#register"><code>iot(<b>register()</b></code></a>
+* <a href="#regiestSubDevice"><code>iot.gateway#<b>regiestSubDevice()</b></code></a>
 
 
 <a name="device"></a>
 
-### aliyunIot.device(options)
+### iot.device(options)
 
 和云端建立连接，返回一个 `Device` 连接实例，入参：
 
@@ -159,7 +159,7 @@ device.onService('wakeup_async', function (res,reply) {
   * `clean`    (`bool`)   cleansession，是否清除连接session设置,默认值false
 
 ````js
-const device = aliyunIot.device({
+const device = iot.device({
   productKey: '<productKey>',
   deviceName: '<deviceName>',
   deviceSecret: '<deviceSecret>'
@@ -173,9 +173,9 @@ const device = aliyunIot.device({
 当连接到云端成功时触发。
 
 ````javascript
-const aliyunIot = require('aliyun-iot-device-sdk');
+const iot = require('aliyun-iot-device-sdk');
 
-const device = aliyunIot.device({
+const device = iot.device({
   productKey: '<productKey>',
   deviceName: '<deviceName>',
   deviceSecret: '<deviceSecret>'
@@ -219,25 +219,25 @@ device.on('error', (err) => {
 
 <a name="publish"></a>
 
-### aliyunIot.device#publish(topic, message, [options], [callback])
+### iot.device#publish(topic, message, [options], [callback])
 
 向topic发送消息，等同于 [mqtt.Client#publish()](https://github.com/mqttjs/MQTT.js/blob/master/README.md#publish) 方法。
 
 <a name="subscribe"></a>
 
-### aliyunIot.device#subscribe(topic, [callback])
+### iot.device#subscribe(topic, [callback])
 
 订阅消息，等同于 [mqtt.Client#subscribe()](https://github.com/mqttjs/MQTT.js/blob/master/README.md#subscribe) 方法。
 
 <a name="unsubscribe"></a>
 
-### aliyunIot.device#unsubscribe(topic, [callback])
+### iot.device#unsubscribe(topic, [callback])
 
 取消订阅消息等同于 [mqtt.Client#unsubscribe()](https://github.com/mqttjs/MQTT.js/blob/master/README.md#unsubscribe) 方法。
 
 <a name="postProps"></a>
 
-### aliyunIot.device#postProps(params, [callback])
+### iot.device#postProps(params, [callback])
 
 上报物模型属性：
 
@@ -256,7 +256,7 @@ device.postProps({
 });
 ````
 
-### aliyunIot.device#postEvent(eventIdentifier, params, [callback])
+### iot.device#postEvent(eventIdentifier, params, [callback])
 
 上报物模型事件：
 
@@ -278,7 +278,7 @@ device.postEvent("lowpower", {
 
 <a name="onService"></a>
 
-### aliyunIot.device#onService(seviceIdentifier, [callback])
+### iot.device#onService(seviceIdentifier, [callback])
 
 监听物模型服务：
 
@@ -321,13 +321,13 @@ device.onService('wakeup_sync', function (res,reply) {
 
 <a name="end"></a>
 
-### aliyunIot.device#end([force], [options], [callback])
+### iot.device#end([force], [options], [callback])
 
 设备或网关断开连接，等同于 [mqtt.Client#end()](https://github.com/mqttjs/MQTT.js/blob/master/README.md#end) 方法。
 
 <a name="postTags"></a>
 
-### aliyunIot.device#postTags(params, [callback])
+### iot.device#postTags(params, [callback])
 
 上报设备标签：
 
@@ -358,7 +358,7 @@ device.postTags(
 
 <a name="deleteTags"></a>
 
-### aliyunIot.device#deleteTags(tags)
+### iot.device#deleteTags(tags)
 
 删除设备标签：
 
@@ -372,7 +372,7 @@ device.deleteTags(['tagA','tagB']);
 
 <a name="getConfig"></a>
 
-### aliyunIot.device#getConfig(callback)
+### iot.device#getConfig(callback)
 
 获取设备远程配置：
 
@@ -388,7 +388,7 @@ device.getConfig((res) => {
 
 <a name="onConfig"></a>
 
-### aliyunIot.device#onConfig(callback)
+### iot.device#onConfig(callback)
 
 订阅设备远程配置，当云端修改远程配置时，设备端会收到消息：
 
@@ -404,7 +404,7 @@ device.onConfig((res) => {
 
 <a name="onShadow"></a>
 
-### aliyunIot.device#onShadow(callback)
+### iot.device#onShadow(callback)
 
 订阅设备影子回调函数方法：
 
@@ -420,7 +420,7 @@ device.onShadow((res) => {
 
 <a name="getShadow"></a>
 
-### aliyunIot.device#getShadow()
+### iot.device#getShadow()
 
 获取设备影子最新：
 
@@ -433,7 +433,7 @@ device.getShadow();
 
 <a name="postShadow"></a>
 
-### aliyunIot.device#postShadow(params)
+### iot.device#postShadow(params)
 
 上报设备影子数据
 
@@ -449,7 +449,7 @@ device.postShadow({
 
 <a name="deleteShadow"></a>
 
-### aliyunIot.device#deleteShadow(keys)
+### iot.device#deleteShadow(keys)
 
 删除影子设备的属性值
 
@@ -469,7 +469,7 @@ device.deleteShadow()
 
 <a name="gateway"></a>
 
-### aliyunIot.gateway(options)
+### iot.gateway(options)
 
 和云端建立连接，返回一个网关 `Gateway` 类连接实例，继承自 `Device`  类。网关可以使用设备的所有方法
 
@@ -484,7 +484,7 @@ device.deleteShadow()
 
 
 ````js
-const device = aliyunIot.gateway({
+const device = iot.gateway({
   productKey: '<productKey>',
   deviceName: '<deviceName>',
   deviceSecret: '<deviceSecret>'
@@ -493,7 +493,7 @@ const device = aliyunIot.gateway({
 
 <a name="addTopo"></a>
 
-### aliyunIot.gateway#addTopo(deviceSign, [callback])
+### iot.gateway#addTopo(deviceSign, [callback])
 
 添加子设备到拓扑
 
@@ -510,7 +510,7 @@ gateway.addTopo(
 
 <a name="getTopo"></a>
 
-### aliyunIot.gateway#getTopo(callback)
+### iot.gateway#getTopo(callback)
 
 添加子设备到拓扑关系
 
@@ -527,7 +527,7 @@ gateway.getTopo(
 
 <a name="removeTopo"></a>
 
-### aliyunIot.gateway#removeTopo(params, [callback])
+### iot.gateway#removeTopo(params, [callback])
 
 从拓扑关系里移除子设备
 
@@ -551,7 +551,7 @@ gateway.removeTopo(
 
 <a name="login"></a>
 
-### aliyunIot.gateway#login(params, [callback])
+### iot.gateway#login(params, [callback])
 
 子设备上线
 
@@ -589,7 +589,7 @@ gateway.on('connect', () => {
 
 <a name="logout"></a>
 
-### aliyunIot.gateway#logout(params, [callback])
+### iot.gateway#logout(params, [callback])
 
 子设备下线
 
@@ -609,7 +609,7 @@ gateway.logout(
   
 <a name="register"></a>
 
-### aliyunIot#register(params, [callback])
+### iot#register(params, [callback])
 
 直连设备动态注册
 
@@ -626,7 +626,7 @@ const params = {
   productSecret:"xxxxxx",
   deviceName:"xxxxxx"
 }
-aliyunIot.register(params,(res)=>{
+iot.register(params,(res)=>{
   console.log("register:",res);
   if(res.code == '200'){
     // 注册成功请保存设备三元组，只会返回一次
@@ -636,7 +636,7 @@ aliyunIot.register(params,(res)=>{
   
 <a name="regiestSubDevice"></a>
 
-### aliyunIot.gateway#regiestSubDevice(params, [callback])
+### iot.gateway#regiestSubDevice(params, [callback])
 
 通过网关注册子设备
 
@@ -647,7 +647,7 @@ aliyunIot.register(params,(res)=>{
   * `res` 服务端 reply 消息内容
 
 ````js
-const gateway = aliyunIot.gateway({
+const gateway = iot.gateway({
   productKey: '<productKey>',
   deviceName: '<deviceName>',
   deviceSecret: '<deviceSecret>'}
@@ -712,7 +712,7 @@ device.onService('wakeup_sync', function (res,reply) {
 ````javascript
 <!-- 1：引入对象 -->
 require('../../dist/aliyun-iot-device-sdk.min.js') 
-const aliyunIot = global.aliyunIot;
+const iot = global.iot;
 <!-- 2：小程序设置可信地址
   1：配置可用wss地址
   demo三元组是示例使用，自己实际场景需要换成自己的三元组和物模型
@@ -731,7 +731,7 @@ const aliyunIot = global.aliyunIot;
     "protocol": 'wxs://'
   } 
   //初始化device实例 
-  let device = aliyunIot.device(_device);
+  let device = iot.device(_device);
   // 3：具体设备api，更多请参考文档
   //测试上报一条设备标签数据
   device.on('connect', () => {
@@ -755,9 +755,9 @@ const aliyunIot = global.aliyunIot;
 - [非兼容性升级]修改返回函数的res格式，取消err作为第一个参数，code,mssage都会放在res里面
 - [非兼容性升级]去掉网关设备的方法 postSubDeviceProps，postSubDeviceEvent，serveSubDeviceService，改成使用子设备调用
 ````
-// aliyunIot.gateway#postSubDeviceProps()
-// aliyunIot.gateway#postSubDeviceEvent()
-// aliyunIot.gateway#serveSubDeviceService()
+// iot.gateway#postSubDeviceProps()
+// iot.gateway#postSubDeviceEvent()
+// iot.gateway#serveSubDeviceService()
 
 const sub = gateway.login(
   sub_device1,

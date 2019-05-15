@@ -21,7 +21,7 @@
 2：在需要使用到sdk地方
 ````js
 // 引入包
-var aliyunIot = require('/dist/aliyun-iot-device-sdk.js');
+var iot = require('/dist/aliyun-iot-device-sdk.js');
 // 定义云端创建的设备三元组信息，并使用协议声明，使用 "protocol": 'alis://'
 const sdk_device = {
   "productKey": "<your productKey>",
@@ -30,7 +30,7 @@ const sdk_device = {
   "protocol": 'alis://',
 } 
 // 连接云平台
-let device = aliyunIot.device(sdk_device);
+let device = iot.device(sdk_device);
 // 当连接成功进入回调
 device.on('connect', () => {
   console.log('连接成功....');

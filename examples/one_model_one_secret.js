@@ -1,4 +1,4 @@
-const aliyunIot = require('../lib');
+const iot = require('../lib');
 
 const registerDeviceInfo = {
   productKey:"a15YDgQGhU0",
@@ -6,7 +6,7 @@ const registerDeviceInfo = {
   deviceName:"device1"
 }
 
-aliyunIot.register(registerDeviceInfo,(error,res)=>{
+iot.register(registerDeviceInfo,(error,res)=>{
   if(error){console.log("register faild",error);return}
   console.log("register succeed,data:",res);
 })

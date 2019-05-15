@@ -1,5 +1,5 @@
 const Buffer = require('buffer').Buffer;
-const aliyunIot = require('../../lib');
+const iot = require('../../lib');
 const fixtures = require('../fixtures');
 
 let gateway;
@@ -8,7 +8,7 @@ const sub_device2 = fixtures.sub_device2;
 
 beforeAll(()=> {
   return new Promise((resolve, reject)=>{
-    gateway = aliyunIot.gateway({...fixtures.sdk_gateway1});
+    gateway = iot.gateway({...fixtures.sdk_gateway1});
     gateway.on('connect', () => {
       resolve();
     });
@@ -28,7 +28,7 @@ describe('device test', () => {
 
   test('get topo should not be ok', done => {
     try {
-        //网关获子设备 ok, aliyunIot.gateway#getTopo()
+        //网关获子设备 ok, iot.gateway#getTopo()
         gateway.getTopo(
           (res)=>{
             console.log('>>>>>getTopo',res)

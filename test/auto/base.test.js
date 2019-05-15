@@ -1,11 +1,11 @@
 const Buffer = require('buffer').Buffer;
-const aliyunIot = require('../../lib');
+const iot = require('../../lib');
 const fixtures = require('../fixtures');
 
 let device;
 beforeAll(()=> {
   return new Promise((resolve, reject)=>{
-    device = aliyunIot.device({
+    device = iot.device({
       ...fixtures.sdk_device1
     });
     device.on('connect', () => {
@@ -27,7 +27,7 @@ describe('device test', () => {
 
   test('productKey should not be empty', done => {
     try {
-      const device = aliyunIot.device();
+      const device = iot.device();
     } catch (e) {
       done();
     }
@@ -35,7 +35,7 @@ describe('device test', () => {
 
   test('deviceName should not be empty', done => {
     try {
-      const device = aliyunIot.device({
+      const device = iot.device({
         productKey: '1'
       });
     } catch (e) {
@@ -45,7 +45,7 @@ describe('device test', () => {
 
   test('deviceSecret should not be empty', done => {
     try {
-      const device = aliyunIot.device({
+      const device = iot.device({
         productKey: '1',
         deviceName: '2'
       });

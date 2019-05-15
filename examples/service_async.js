@@ -1,7 +1,7 @@
-const aliyunIot = require('../');
+const iot = require('../');
 
 // init device and connect linkplatform
-const device = aliyunIot.device({
+const device = iot.device({
   "PRODUCTKEY": "a1ouyopKiEU",
   "DeviceName": "device1",
   "DeviceSecret": "mi9FfuIN28blO1n4oSytBi2kvcWoJzTj"

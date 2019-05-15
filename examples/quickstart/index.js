@@ -1,7 +1,7 @@
-const aliyunIot = require('aliyun-iot-device-sdk');
+const iot = require('aliyun-iot-device-sdk');
 const deviceConfig = require('./device_id_password.json');
 
-const device = aliyunIot.device(deviceConfig);
+const device = iot.device(deviceConfig);
 
 device.on('connect', () => {
   console.log('Connect successfully!');

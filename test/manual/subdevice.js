@@ -1,9 +1,9 @@
-const aliyunIot = require('../../');
+const iot = require('../../');
 const fixtures = require('../fixtures');
 
 
-const gateway = aliyunIot.gateway(fixtures.sdk_gateway2);
-// const dsad = aliyunIot.device(fixtures.sub_device3);
+const gateway = iot.gateway(fixtures.sdk_gateway2);
+// const dsad = iot.device(fixtures.sub_device3);
 let sub1; 
 gateway.on('message', function(topic, payload){
   console.log("message>>>" , topic.toString(),payload.toString());

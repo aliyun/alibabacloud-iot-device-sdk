@@ -1,25 +1,25 @@
 const Buffer = require('buffer').Buffer;
 const util = require('util');
-const aliyunIot = require('../../lib');
+const iot = require('../../lib');
 const fixtures = require('../fixtures');
 
-// const device = aliyunIot.device({...fixtures.sdk_device1});
+// const device = iot.device({...fixtures.sdk_device1});
 
-const device = aliyunIot.device({
+const device = iot.device({
   "ProductKey": "a1ouyopKiEU",
   // "ProductKey": "a1ouyopKiEU123",
   "DeviceName": "sub1",
   "DeviceSecret": "SpT5OQsX4LZi5CsQIb6OS8hVt8qFRw7o"
 })
 
-// const device = aliyunIot.device({
+// const device = iot.device({
 //   productKey: 'a1BOOa9HG6Z',
 //   deviceName: 'sdk_network1',
 //   deviceSecret: 'SgNxAqaav9URfVuHpnxmq9vDFZbwmZ7H'
 // });
 
 // base_sdk_device2
-// const device = aliyunIot.device({ ...fixtures.base_sdk_device2})
+// const device = iot.device({ ...fixtures.base_sdk_device2})
 
 // const deviceConfig = {
 //     "productKey": "a1FVHNuAmvq",
@@ -27,7 +27,7 @@ const device = aliyunIot.device({
 //     "deviceSecret": "QNNcinhgbY5VgpnQT0DtIUXAlV4jYthO",
 //     "region":"cn-shanghai"
 //   }
-// const device = aliyunIot.device(deviceConfig);
+// const device = iot.device(deviceConfig);
 
 // device.subscribe(`${device.productKey}/${device.deviceName}/user/get`);
 // device.on('message', (topic, payload) => {
@@ -75,7 +75,7 @@ function testDirectRegiest(){
     deviceName:"device1"
   }
   // 动态注册ok
-  aliyunIot.register(registerDeviceInfo,(error,res)=>{
+  iot.register(registerDeviceInfo,(error,res)=>{
     if(error){console.log("register faild",error);return}
     console.log("register succeed,data:",res);
   })
@@ -90,7 +90,7 @@ function testSubDeivceRegiest(){
     deviceName:"device1"
   }
   // 动态注册ok
-  aliyunIot.register(registerDeviceInfo,(error,res)=>{
+  iot.register(registerDeviceInfo,(error,res)=>{
     if(error){console.log("register faild",error);return}
     console.log("register succeed,data:",res);
   })

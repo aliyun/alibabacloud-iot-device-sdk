@@ -1,4 +1,4 @@
-const aliyunIot = require('../lib');
+const iot = require('../lib');
 
 // init device and geteway for linkplatform
 const sub1Info = {
@@ -12,7 +12,7 @@ const sub2Info = {
   "DeviceSecret": "9Nh3fE6xZiMrMKSaRiiIpYCf6uPpHkav"
 }
 
-const gateway = aliyunIot.gateway({
+const gateway = iot.gateway({
   "ProductKey": "a1NuvAIZXv7",
   "DeviceName": "gateway1",
   "DeviceSecret": "S6X7MBsy5zjP07lwzoq1VNgAT81EYw2n"
