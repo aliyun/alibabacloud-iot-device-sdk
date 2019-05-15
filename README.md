@@ -12,52 +12,46 @@ Aliyun IoT Device SDK由阿里云提供给开发者然设备接入到阿里云Io
 npm install aliyun-iot-device-sdk --save
 ```
 
-## 设备接入云端
+## 快速开始
 
 ```javascript
+// node引入包名
 const iot = require('aliyun-iot-device-sdk');
+// 浏览器、微信小程序，支付宝小程序引入dist编译的js文件
+// const iot = require('./dist/aliyun-iot-device-sdk.js');
 
 const device = iot.device({
   productKey: '<productKey>',
   deviceName: '<deviceName>',
-  deviceSecret: '<deviceSecret>'
+  deviceSecret: '<deviceSecret>',
+  // 支付宝小程序和微信小城西额外需要配置协议参数
+  // "protocol": 'alis://', "protocol": 'wxs://',
 });
-
+device.subscribe('/<productKey>/<deviceName>/get');
 device.on('connect', () => {
   console.log('connect successfully!');
+  device.publish('/<productKey>/<deviceName>/update', 'hello world!');
 });
-```
-
-## IoT LinkPlatform基础版 API
-
-## 设备上报数据
-
-```javascript
-device.publish('/<productKey>/<deviceName>/update', 'hello world!');
-```
-
-## 云端下行消息监听
-
-```javascript
-device.subscribe('/<productKey>/<deviceName>/get');
-
 device.on('message', (topic, payload) => {
   console.log(topic, payload.toString());
 });
 ```
 
-## IoT LinkPlatform高级版 API
+## 物模型使用
 
 IoT 套件高级版封装了物模型定义与 Alink 异步协议，SDK 封装使得设备与云端通信时不需要关心 MQTT topic，只需要调用属性上报（<a href="#postProps"><code>iot.device#<b>postProps()</b></code></a>）、服务监听（<a href="#onService"><code>iot.device#<b>onService()</b></code></a>）、事件上报（<a href="#postEvent"><code>iot.device#<b>postEvent()</b></code></a>）等相关 API。
 
 ### 设备属性上报
 
 ```javascript
-device.postProps({
-  'LightSwitch': 0
-}, (res) => {
-  console.log("上报数据成功")
+device.on('connect', () => {
+  device.postProps({
+    LightSwitch: 0
+  }, (res) => {
+    console.log(`postProps:`,res);
+  });
 });
+
 ```
 
 调用 `device.postProps()` 等同于执行以下代码：
@@ -100,10 +94,11 @@ device.onService('wakeup_async', function (res,reply) {
 });
 ```
 
-其他更多功能，请查api列表，值得注意的是
+其他更多功能，请查api列表，值得注意的是，更多示例，见源码example文件夹
   - device继承自mqtt.js的EventEmitter，可以使用其全部方法
   - gateway可以使用device的全部api
   - subDevice也可以使用device的全部api
+
 
 ## API
 

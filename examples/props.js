@@ -1,7 +1,4 @@
-
 const iot = require('../lib');
-
-
 
 const device = iot.device({
   "ProductKey": "a1ouyopKiEU",
