@@ -462,30 +462,8 @@ class Device extends EventEmitter {
     return undefined;
   }
 
-  //上报sdk版本信息
-  // 目前使用cliectid方式上报sdk版本信息
-  _reportSDKInfo() {
-    const networkInfo = `WiFi|` + getIP();
-    let sdkInfo = [];
-    const KVS = {
-      'SYS_SDK_LANGUAGE': 'NodeJS',
-      'SYS_LP_SDK_VERSION': packagejson.version,
-      'SYS_SDK_IF_INFO': networkInfo,
-    };
-    Object.keys(KVS).forEach(function (key) {
-      sdkInfo.push({
-        "attrKey": key,
-        "attrValue": KVS[key],
-        "domain": "SYSTEM"
-      })
-    });
-    this.postTags(sdkInfo);
-    // console.log('publish sdk info',sdkInfo);
-  }
-
   _compatibleoverdue() {
-    //兼容老版本serve 方法 0.5版本去掉
-    // this.serve = this.onService;
+ 
   }
 }
 
