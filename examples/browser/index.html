@@ -41,19 +41,20 @@
     let device;
 
     function connect(){
-      term.writeln('开始连接....')
-      device = iot.device(sdk_device2);
-      // 测试上报一条设备标签数据
-      device.on('connect', () => {
-        term.writeln('连接成功....')
-      });
-      device.on('error', (err) => {
-        term.writeln('连接错误,error:',err);
-      });
-      device.onShadow((res) => {
-        term.writeln('获取最新设备影子,' + JSON.stringify(res));
-      })
-      
+      if(!device){
+        term.writeln('开始连接....');
+        device = iot.device(sdk_device2);
+        // 测试上报一条设备标签数据
+        device.on('connect', (res) => {
+          term.writeln('连接成功....',res)
+        });
+        device.on('error', (err) => {
+          term.writeln('连接错误,error:',err);
+        });
+        device.onShadow((res) => {
+          term.writeln('获取最新设备影子,' + JSON.stringify(res));
+        })
+      }  
     }
 
     function getShadow(){

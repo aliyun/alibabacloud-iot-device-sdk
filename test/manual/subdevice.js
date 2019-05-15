@@ -13,6 +13,15 @@ gateway.on('error', (err)=>{
   console.log('gateway error:',err);
 });
 
+// setInterval(() => {
+//   console.log("login")
+//   gateway.login(
+//     fixtures.sub_device5,
+//     (res) => {
+//     console.log('>>>>> sub1 login ...');
+//   });
+// }, 5000);
+
 gateway.on('connect', () => {
   //子设备1上线
   sub1 = gateway.login(
@@ -20,6 +29,7 @@ gateway.on('connect', () => {
     (res) => {
     console.log('>>>>> sub1 login ...');
   });
+ 
 
   sub1.on('error', (resp) => {
     console.log(">>>>sub1 error!!!",resp);
@@ -83,23 +93,23 @@ gateway.on('connect', () => {
 
 
   //订阅可以收到服务调用下发
-  sub1.onService('wakeup_async', function (res,reply) {
-    // 处理服务参数
-    console.log('1^:sub1 wakeup_async',res);
-    reply({
-      "code": 200,
-      "data": {out:0}
-    });
-  });
+  // sub1.onService('wakeup_async', function (res,reply) {
+  //   // 处理服务参数
+  //   console.log('1^:sub1 wakeup_async',res);
+  //   reply({
+  //     "code": 200,
+  //     "data": {out:0}
+  //   });
+  // });
 
-  sub1.onService('wakeup_sync', function (res,reply) {
-    // 处理服务参数
-    console.log('1^:sub1 wakeup_sync',res);
-    reply({
-      "code": 200,
-      "data": {out:1}
-    },'sync');
-  });
+  // sub1.onService('wakeup_sync', function (res,reply) {
+  //   // 处理服务参数
+  //   console.log('1^:sub1 wakeup_sync',res);
+  //   reply({
+  //     "code": 200,
+  //     "data": {out:1}
+  //   },'sync');
+  // });
 
  
 
@@ -202,7 +212,8 @@ gateway.on('connect', () => {
 });
 
 // // 退出登录
-// setTimeout(() => {
-//   sub1._unsubscribePresetTopic();
-//   gateway._unsubscribePresetTopic();
-// }, 10000);
+setTimeout(() => {
+  // sub1._unsubscribePresetTopic();
+  // gateway._unsubscribePresetTopic();
+  gateway.logout(fixtures.sub_device5)
+}, 5000);
