@@ -109,12 +109,12 @@ gateway.on('connect', () => {
     //   console.log("onConfig,res:",res);
     // });
     
-    // //订阅影子设备返回值
-    // sub1.onShadow((res) => {
-    //   console.log('获取最新设备影子,%o', res);
-    // })
-    // // 设备主动获取影子 ok
-    // sub1.getShadow();
+    //订阅影子设备返回值
+    sub1.onShadow((res) => {
+      console.log('获取最新设备影子,%o', res);
+    })
+    // 设备主动获取影子 ok
+    sub1.getShadow();
   });
 
 
