@@ -138,7 +138,7 @@ class Gateway extends Thing {
       //处理子设备服务返回数据,同步或者异步方式
       subDevice = this._searchMqttMatchServiceTopicWithSubDevice(topic);
       if(subDevice){
-        console.log("gateway _searchMqttMatchServiceTopicWithSubDevice",topic);
+        // console.log("gateway _searchMqttMatchServiceTopicWithSubDevice",topic);
         subDevice._onReceiveService(topic,res);
         return; 
       }
