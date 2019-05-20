@@ -26,7 +26,7 @@ class Thing extends EventEmitter {
     //init model
     this.model = new Model(config);
     this.serveCB = [];
-    this._onShadowCB;
+    this._onShadowCB = nilFn;
     this._onConfigCB = nilFn;
     //兼容旧版本
     this._compatibleoverdue();
@@ -342,7 +342,7 @@ class Thing extends EventEmitter {
     // console.log('device _mqttCallbackHandler',topic,message);
     // 几种不处理的情况
     // 情况1:回调函数为空
-    if (this._cb==[] && this._serviceCB==[] && this._onShadowCB == undefined && this._onConfigCB == undefined ){
+    if (this._cb==[] && this._serviceCB==[] && this._onShadowCB == nilFn && this._onConfigCB == nilFn ){
       return;
     }
     // 情况2:返回值为非结构化数据（非结构化可能是：基础版产品或是用户自定义topic）
@@ -359,7 +359,7 @@ class Thing extends EventEmitter {
         return; 
       }
       // 影子设备reply和云端或应用下发影子配置通知,很久之前cmp定义的方法名称，所以格式与其他名称不太相同
-      if(mqttMatch(this.model.SHADOW_SUBSCRIBE_TOPIC,topic) && this._onShadowCB!=undefined){
+      if(mqttMatch(this.model.SHADOW_SUBSCRIBE_TOPIC,topic) && this._onShadowCB!=nilFn){
         this._onShadowCB(res);
         return;
       }
@@ -410,7 +410,7 @@ class Thing extends EventEmitter {
 
   //处理接收云端下发服务调用
   _onReceiveService(topic,res) {
-    console.log("_onReceiveService",this.model.deviceName)
+    // console.log("_onReceiveService",this.model.deviceName)
     const {
       method
     } = res;
