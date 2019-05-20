@@ -1,6 +1,6 @@
-const util = require('util');
+
 // const Device = require('./device');
-const Device = require('./device');
+const Thing = require('./thing');
 const SubDevice = require('./subdevice');
 
 const {
@@ -13,9 +13,13 @@ const {
 } = require('./utils');
 const debug = createDebug('gateway');
 
-class Gateway extends Device {
-  constructor(...args) {
-    super(...args);
+class Gateway extends Thing {
+  constructor(config) {
+    super(config);
+    // create mqttclient
+    this._createClient(this.model);
+    // subcribe client event and preset topic
+    this._subscribeClientEvent();
     // 子设备管理
     this.subDevices = [];
     // 调试模式标识
@@ -66,7 +70,7 @@ class Gateway extends Device {
     //  校验三元组非空
     tripleExpectNotNull(device);
     // 创建subdevice
-    const subDevice = new SubDevice(this,device); 
+    const subDevice = new SubDevice(device,this); 
   
     this._addSubDevices(subDevice);
     // 通过网关登录
@@ -134,7 +138,7 @@ class Gateway extends Device {
       //处理子设备服务返回数据,同步或者异步方式
       subDevice = this._searchMqttMatchServiceTopicWithSubDevice(topic);
       if(subDevice){
-        // console.log("_searchMqttMatchServiceTopicWithSubDevice");
+        console.log("gateway _searchMqttMatchServiceTopicWithSubDevice",topic);
         subDevice._onReceiveService(topic,res);
         return; 
       }

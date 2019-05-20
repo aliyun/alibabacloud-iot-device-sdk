@@ -126,7 +126,6 @@ export default class Model {
       keepalive: this.keepalive,
       clean: this.clean,
     }
-    console.log("params",params);
     // 支付宝小程序api全局对象my
     if(lang==='JS|Ali'){
       params.my = my;
@@ -137,7 +136,7 @@ export default class Model {
   genConnectPrarms() {
     const lang = getSDKLanguage();
     const extra = `lan=${lang},_v=${packageJson.version}|` 
-    console.log('extra',extra);
+    // console.log('extra',extra);
     // const extra =''
     let params =  {
       clientId:`${this.clientId}|securemode=${this.securemode },signmethod=hmac${this.signAlgorithm},timestamp=${this.timestamp},${extra}`,
@@ -152,7 +151,6 @@ export default class Model {
       keepalive: this.keepalive,
       clean: this.clean,
     }
-    console.log("params",params);
 
     // 支付宝小程序api全局对象my
     if(lang==='JS|Ali'){

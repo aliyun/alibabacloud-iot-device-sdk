@@ -1,13 +1,10 @@
+const Thing = require('./thing');
 
-const Model = require('./model');
-const Device = require('./device');
-const EventEmitter = require('events');
-
-class SubDevice extends Device {
-  
-  constructor(gateway,config = {}) {
-    super(config,gateway._mqttClient);
+class SubDevice extends Thing {
+  constructor(config = {},gateway) {
+    super(config);
     this.gateway = gateway;
+    this._mqttClient = gateway._mqttClient;
   }
 }
 module.exports = SubDevice;
