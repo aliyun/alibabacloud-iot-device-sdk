@@ -25,7 +25,7 @@ gateway.on('error', (err)=>{
 gateway.on('connect', () => {
   //子设备1上线
   sub1 = gateway.login(
-    fixtures.sub_device5,
+    fixtures.sub_device4,
     (res) => {
     console.log('>>>>> sub1 login ...');
   });
@@ -35,9 +35,35 @@ gateway.on('connect', () => {
     console.log(">>>>sub1 error!!!",resp);
   });
   
+  //订阅可以收到服务调用下发
+  sub1.onService('add_sync', function (res,reply) {
+    console.log('add_sync called,res:',res);
+    const { params:{x,y}={}} = res;
+    const result = addFunc(x,y);
+    console.log('result',result);
+    reply(result,'sync');
+  });
+  
+  function addFunc(x,y){
+    let err;
+    if(x==undefined || y==undefined){
+      err = 'x or y invail value';
+      return {err,code:10001}
+    }
+  
+    return {
+      data:{
+        z:x+y
+      },
+      code:200
+    }
+  }
+
   sub1.on('connect', () => {
     console.log(">>>>sub1 connected!");
 
+
+  
 
     // sub1.postProps({
     //   state: 0
@@ -212,8 +238,8 @@ gateway.on('connect', () => {
 });
 
 // // 退出登录
-setTimeout(() => {
-  // sub1._unsubscribePresetTopic();
-  // gateway._unsubscribePresetTopic();
-  gateway.logout(fixtures.sub_device5)
-}, 5000);
+// setTimeout(() => {
+//   // sub1._unsubscribePresetTopic();
+//   // gateway._unsubscribePresetTopic();
+//   gateway.logout(fixtures.sub_device5)
+// }, 5000);

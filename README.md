@@ -755,3 +755,29 @@ setTimeout(()=>{
 1:初始化连接option选择增加支持keepalive和clean（cleansession）配置
 2:修改regionId为region，并兼容之前的regionId参数
 
+
+#### 研发中常见的问题
+
+1：onMessage多次回调，示例如下
+
+````js
+// 错误示例
+const device = iot.device({...,...});
+device.on('connect', (res) => {
+  device.on('message',(topic,payload) => {
+      // you biz logic at here
+  });
+});
+
+// 错误原因  device.on('message')委托放在 device.on('connecnt')中会导致多次绑定，产生message中的函数多次重复触发
+
+// 正确示例
+const device = iot.device({...,...});
+device.on('connect', (res) => {
+ 
+});
+device.on('message',(topic,payload) => {
+    // you biz logic at here
+});
+````
+

@@ -14,7 +14,7 @@
             "env":{
                 "DEBUG":"TRUE",
             }
-        }
+        },
         {
           "type": "node",
           "request": "launch",
@@ -22,7 +22,15 @@
           "program": "${workspaceFolder}/test/manual/devDevices.js",
           "env":{
               "DEBUG":"TRUE",
-          }
+        },
+        {
+          "type": "node",
+          "request": "launch",
+          "name": "subdevice",
+          "program": "${workspaceFolder}/test/manual/subdevice.js",
+          "env":{
+              "DEBUG":"TRUE",
+        }
       }
     ]
 }
