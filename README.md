@@ -1,6 +1,9 @@
 # Aliyun IoT Device SDK for Javascript
 
-Aliyun IoT Device SDK由阿里云提供给开发者然设备接入到阿里云IoT物联网平台(LinkPlatform )的工具。如果有使用问题可以反馈到xuanyan.lyw@alibaba-inc.com，关于IoT物联网平台更多功能和功能详细说明，参考官网文档     https://help.aliyun.com/product/30520.html
+Aliyun IoT Device SDK提供设备接入阿里云IoT物联网平台(LinkPlatform)的JavaScript版本的sdk，可以运行在node,broswer，微信小程序，支付宝小程序环境，封装LinkPlatform物联网平台的设备端能力，如设备连接云平台，数据pub，sub的上下行通讯。还有许多高级功能，如影子设备，远程配置，基于设备物模型（属性、服务、事件）的开发模式，网关和子设备的能力等，基于SDK的设备端开发或设备应用开发，可以极大简化开发门槛。
+
+如果有使用问题可以反馈到xuanyan.lyw@alibaba-inc.com，关于IoT物联网平台更多功能和功能详细说明，参考官网文档 [https://help.aliyun.com/product/30520.html](https://help.aliyun.com/product/30520.html)
+
 
 ## 安装
 
@@ -17,14 +20,14 @@ npm install aliyun-iot-device-sdk --save
 ```javascript
 // node引入包名
 const iot = require('aliyun-iot-device-sdk');
-// 浏览器、微信小程序，支付宝小程序引入dist编译的js文件
+// 浏览器、微信小程序，支付宝小程序引入./dist编译的js文件
 // const iot = require('./dist/aliyun-iot-device-sdk.js');
 
 const device = iot.device({
   productKey: '<productKey>',
   deviceName: '<deviceName>',
   deviceSecret: '<deviceSecret>',
-  // 支付宝小程序和微信小城西额外需要配置协议参数
+  // 支付宝小程序和微信小程序额外需要配置协议参数
   // "protocol": 'alis://', "protocol": 'wxs://',
 });
 device.subscribe('/<productKey>/<deviceName>/get');
@@ -39,7 +42,7 @@ device.on('message', (topic, payload) => {
 
 ## 物模型使用
 
-IoT 套件高级版封装了物模型定义与 Alink 异步协议，SDK 封装使得设备与云端通信时不需要关心 MQTT topic，只需要调用属性上报（<a href="#postProps"><code>iot.device#<b>postProps()</b></code></a>）、服务监听（<a href="#onService"><code>iot.device#<b>onService()</b></code></a>）、事件上报（<a href="#postEvent"><code>iot.device#<b>postEvent()</b></code></a>）等相关 API。
+LinkPlatform 封装了物模型定义与 Alink 异步协议，SDK 封装使得设备与云端通信时不需要关心 MQTT topic，只需要调用属性上报（<a href="#postProps"><code>iot.device#<b>postProps()</b></code></a>）、服务监听（<a href="#onService"><code>iot.device#<b>onService()</b></code></a>）、事件上报（<a href="#postEvent"><code>iot.device#<b>postEvent()</b></code></a>）等相关 API。
 
 ### 设备属性上报
 
@@ -678,7 +681,6 @@ gateway.on('connect', () => {
 #### 1.1.0
 
 - 增加对微信小程序，支付宝小程序的支持，浏览器的支持 [教程连接 ./docs](./docs)
-
 - 增加onService中reply函数,并支持同步和异步调用
 ```javascript
 // 假设物模型中有 wakeup_async的异步服务和wakeup_sync的同步服务，输出值都为out 
