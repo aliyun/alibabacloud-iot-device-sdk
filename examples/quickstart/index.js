@@ -1,4 +1,4 @@
-const iot = require('aliyun-iot-device-sdk');
+const iot = require('alibabacloud-iot-device-sdk');
 const deviceConfig = require('./device_id_password.json');
 
 const device = iot.device(deviceConfig);

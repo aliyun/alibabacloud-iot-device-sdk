@@ -1,7 +1,7 @@
 set -e
 
 if [ ! -d ./node_modules ]; then
-  printf "Installing Aliyun Iot Device SDK...\n"
+  printf "Installing alibabacloud Iot Device SDK...\n"
   npm install
 fi
 

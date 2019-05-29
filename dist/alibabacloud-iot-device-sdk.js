@@ -2870,7 +2870,7 @@ var Model = function () {
         this.brokerUrl = util.format(BROKER_URL, this.brokerProtocol, this.productKey, this.region || DEFAULT_REGION, this.brokerPort);
       }
       this.timestamp = Date.now();
-      this.clientId = config.clientId ? config.clientId + '_aliyun-iot-device-sdk-js' : this.productKey + '&' + this.deviceName + '_aliyun-iot-device-sdk-js';
+      this.clientId = config.clientId ? '' + config.clientId : this.productKey + '&' + this.deviceName;
 
       /* 初始化topic */
       //methods
@@ -35137,9 +35137,9 @@ function extend() {
 
 },{}],289:[function(require,module,exports){
 module.exports={
-  "name": "aliyun-iot-device-sdk",
+  "name": "alibabacloud-iot-device-sdk",
   "version": "1.1.0",
-  "description": "aliyun iot device sdk",
+  "description": "alibabacloud iot device sdk",
   "keywords": [
     "iot",
     "mqtt",
@@ -35148,6 +35148,8 @@ module.exports={
     "linkEdge",
     "aliyun-iot-mqtt",
     "aliyun",
+    "alibabacloud-iot-mqtt",
+    "alibabacloud",
     "iot",
     "iothub",
     "linkdevelop",
@@ -35157,14 +35159,14 @@ module.exports={
     "iot-sdk"
   ],
   "main": "lib/index.js",
-  "homepage": "https://github.com/aliyun/aliyun-iot-device-sdk-js",
+  "homepage": "https://github.com/aliyun/alibabacloud-iot-device-sdk",
   "scripts": {
     "lib": "babel src -d lib",
     "dev": "babel src -w -d lib",
     "test": "jest --coverage ./test/",
     "test:dev": "jest --coverage --watch ./test/",
     "rap": "npm run lib && rm -rf rap && mkdir rap && cp -R lib rap && cp package.json rap && sed 's/npm/rap/g' README.md > rap/README.md && cd rap && rap publish",
-    "build": "npm run lib && rimraf dist/ && mkdirp dist/ && browserify lib/index.js -s iot > dist/aliyun-iot-device-sdk.js && uglifyjs < dist/aliyun-iot-device-sdk.js > dist/aliyun-iot-device-sdk.min.js",
+    "build": "npm run lib && rimraf dist/ && mkdirp dist/ && browserify lib/index.js -s iot > dist/alibabacloud-iot-device-sdk.js && uglifyjs < dist/alibabacloud-iot-device-sdk.js > dist/alibabacloud-iot-device-sdk.min.js",
     "pubus": "rm -rf unstabitily && mkdir unstabitily && cp package.unstabitily.json unstabitily/ && mv ./unstabitily/package.unstabitily.json ./unstabitily/package.json &&   cp README.md ./unstabitily && cp -r lib/ ./unstabitily  && tnpm publish ./unstabitily/"
   },
   "jest": {
@@ -35176,7 +35178,7 @@ module.exports={
   },
   "author": "玄彦",
   "email": "xuanyan.lyw@alibaba-inc.com",
-  "url": "https://github.com/aliyun/aliyun-iot-device-sdk-js/issues",
+  "url": "https://github.com/aliyun/alibabacloud-iot-device-sdk/issues",
   "license": "MIT",
   "files": [
     "dist/"

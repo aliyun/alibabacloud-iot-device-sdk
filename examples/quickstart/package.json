@@ -8,6 +8,6 @@
   },
   "license": "ISC",
   "dependencies": {
-    "aliyun-iot-device-sdk": "0.3.1"
+    "alibabacloud-iot-device-sdk": "1.1.0"
   }
 }

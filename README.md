@@ -1,6 +1,6 @@
-# Aliyun IoT Device SDK for Javascript
+# alibabacloud IoT Device SDK for Javascript
 
-Aliyun IoT Device SDK提供设备接入阿里云IoT物联网平台(LinkPlatform)的JavaScript版本的sdk，可以运行在node,broswer，微信小程序，支付宝小程序环境，封装LinkPlatform物联网平台的设备端能力，如设备连接云平台，数据pub，sub的上下行通讯。还有许多高级功能，如影子设备，远程配置，基于设备物模型（属性、服务、事件）的开发模式，网关和子设备的能力等，基于SDK的设备端开发或设备应用开发，可以极大简化开发门槛。
+alibabacloud IoT Device SDK提供设备接入阿里云IoT物联网平台(LinkPlatform)的JavaScript版本的sdk，可以运行在node,broswer，微信小程序，支付宝小程序环境，封装LinkPlatform物联网平台的设备端能力，如设备连接云平台，数据pub，sub的上下行通讯。还有许多高级功能，如影子设备，远程配置，基于设备物模型（属性、服务、事件）的开发模式，网关和子设备的能力等，基于SDK的设备端开发或设备应用开发，可以极大简化开发门槛。
 
 如果有使用问题可以反馈到xuanyan.lyw@alibaba-inc.com，关于IoT物联网平台更多功能和功能详细说明，参考官网文档 [https://help.aliyun.com/product/30520.html](https://help.aliyun.com/product/30520.html)
 
@@ -12,16 +12,16 @@ Aliyun IoT Device SDK提供设备接入阿里云IoT物联网平台(LinkPlatform)
 通过 npm 包管理工具安装：
 
 ```bash
-npm install aliyun-iot-device-sdk --save
+npm install alibabacloud-iot-device-sdk --save
 ```
 
 ## 快速开始
 
 ```javascript
 // node引入包名
-const iot = require('aliyun-iot-device-sdk');
+const iot = require('alibabacloud-iot-device-sdk');
 // 浏览器、微信小程序，支付宝小程序引入./dist编译的js文件
-// const iot = require('./dist/aliyun-iot-device-sdk.js');
+// const iot = require('./dist/alibabacloud-iot-device-sdk.js');
 
 const device = iot.device({
   productKey: '<productKey>',
@@ -171,7 +171,7 @@ const device = iot.device({
 当连接到云端成功时触发。
 
 ````javascript
-const iot = require('aliyun-iot-device-sdk');
+const iot = require('alibabacloud-iot-device-sdk');
 
 const device = iot.device({
   productKey: '<productKey>',
@@ -680,6 +680,7 @@ gateway.on('connect', () => {
 
 #### 1.1.0
 
+- 包名的修改，从 aliyun-iot-device-sdk 正式改名为 alibabacloud-iot-device-sdk
 - 增加对微信小程序，支付宝小程序的支持，浏览器的支持 [教程连接 ./docs](./docs)
 - 增加onService中reply函数,并支持同步和异步调用
 ```javascript
