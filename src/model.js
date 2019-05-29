@@ -229,8 +229,8 @@ export default class Model {
     }
     this.timestamp = Date.now();
     this.clientId = config.clientId ?
-      `${config.clientId}_aliyun-iot-device-sdk-js` :
-      `${this.productKey}&${this.deviceName}_aliyun-iot-device-sdk-js`;
+      `${config.clientId}` :
+      `${this.productKey}&${this.deviceName}`;
 
     /* 初始化topic */
     //methods
