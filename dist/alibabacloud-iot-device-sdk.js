@@ -1,2223 +1,4 @@
 (function(f){if(typeof exports==="object"&&typeof module!=="undefined"){module.exports=f()}else if(typeof define==="function"&&define.amd){define([],f)}else{var g;if(typeof window!=="undefined"){g=window}else if(typeof global!=="undefined"){g=global}else if(typeof self!=="undefined"){g=self}else{g=this}g.iot = f()}})(function(){var define,module,exports;return (function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
-(function (process,global){
-'use strict'
-
-/**
- * Module dependencies
- */
-var events = require('events')
-var Store = require('./store')
-var mqttPacket = require('mqtt-packet')
-var Writable = require('readable-stream').Writable
-var inherits = require('inherits')
-var reInterval = require('reinterval')
-var validations = require('./validations')
-var xtend = require('xtend')
-var setImmediate = global.setImmediate || function (callback) {
-  // works in node v0.8
-  process.nextTick(callback)
-}
-var defaultConnectOptions = {
-  keepalive: 60,
-  reschedulePings: true,
-  protocolId: 'MQTT',
-  protocolVersion: 4,
-  reconnectPeriod: 1000,
-  connectTimeout: 30 * 1000,
-  clean: true,
-  resubscribe: true
-}
-var errors = {
-  0: '',
-  1: 'Unacceptable protocol version',
-  2: 'Identifier rejected',
-  3: 'Server unavailable',
-  4: 'Bad username or password',
-  5: 'Not authorized',
-  16: 'No matching subscribers',
-  17: 'No subscription existed',
-  128: 'Unspecified error',
-  129: 'Malformed Packet',
-  130: 'Protocol Error',
-  131: 'Implementation specific error',
-  132: 'Unsupported Protocol Version',
-  133: 'Client Identifier not valid',
-  134: 'Bad User Name or Password',
-  135: 'Not authorized',
-  136: 'Server unavailable',
-  137: 'Server busy',
-  138: 'Banned',
-  139: 'Server shutting down',
-  140: 'Bad authentication method',
-  141: 'Keep Alive timeout',
-  142: 'Session taken over',
-  143: 'Topic Filter invalid',
-  144: 'Topic Name invalid',
-  145: 'Packet identifier in use',
-  146: 'Packet Identifier not found',
-  147: 'Receive Maximum exceeded',
-  148: 'Topic Alias invalid',
-  149: 'Packet too large',
-  150: 'Message rate too high',
-  151: 'Quota exceeded',
-  152: 'Administrative action',
-  153: 'Payload format invalid',
-  154: 'Retain not supported',
-  155: 'QoS not supported',
-  156: 'Use another server',
-  157: 'Server moved',
-  158: 'Shared Subscriptions not supported',
-  159: 'Connection rate exceeded',
-  160: 'Maximum connect time',
-  161: 'Subscription Identifiers not supported',
-  162: 'Wildcard Subscriptions not supported'
-}
-
-function defaultId () {
-  return 'mqttjs_' + Math.random().toString(16).substr(2, 8)
-}
-
-function sendPacket (client, packet, cb) {
-  client.emit('packetsend', packet)
-
-  var result = mqttPacket.writeToStream(packet, client.stream, client.options)
-
-  if (!result && cb) {
-    client.stream.once('drain', cb)
-  } else if (cb) {
-    cb()
-  }
-}
-
-function flush (queue) {
-  if (queue) {
-    Object.keys(queue).forEach(function (messageId) {
-      if (typeof queue[messageId] === 'function') {
-        queue[messageId](new Error('Connection closed'))
-        delete queue[messageId]
-      }
-    })
-  }
-}
-
-function storeAndSend (client, packet, cb, cbStorePut) {
-  client.outgoingStore.put(packet, function storedPacket (err) {
-    if (err) {
-      return cb && cb(err)
-    }
-    cbStorePut()
-    sendPacket(client, packet, cb)
-  })
-}
-
-function nop () {}
-
-/**
- * MqttClient constructor
- *
- * @param {Stream} stream - stream
- * @param {Object} [options] - connection options
- * (see Connection#connect)
- */
-function MqttClient (streamBuilder, options) {
-  var k
-  var that = this
-
-  if (!(this instanceof MqttClient)) {
-    return new MqttClient(streamBuilder, options)
-  }
-
-  this.options = options || {}
-
-  // Defaults
-  for (k in defaultConnectOptions) {
-    if (typeof this.options[k] === 'undefined') {
-      this.options[k] = defaultConnectOptions[k]
-    } else {
-      this.options[k] = options[k]
-    }
-  }
-
-  this.options.clientId = (typeof options.clientId === 'string') ? options.clientId : defaultId()
-
-  this.options.customHandleAcks = (options.protocolVersion === 5 && options.customHandleAcks) ? options.customHandleAcks : function () { arguments[3](0) }
-
-  this.streamBuilder = streamBuilder
-
-  // Inflight message storages
-  this.outgoingStore = options.outgoingStore || new Store()
-  this.incomingStore = options.incomingStore || new Store()
-
-  // Should QoS zero messages be queued when the connection is broken?
-  this.queueQoSZero = options.queueQoSZero === undefined ? true : options.queueQoSZero
-
-  // map of subscribed topics to support reconnection
-  this._resubscribeTopics = {}
-
-  // map of a subscribe messageId and a topic
-  this.messageIdToTopic = {}
-
-  // Ping timer, setup in _setupPingTimer
-  this.pingTimer = null
-  // Is the client connected?
-  this.connected = false
-  // Are we disconnecting?
-  this.disconnecting = false
-  // Packet queue
-  this.queue = []
-  // connack timer
-  this.connackTimer = null
-  // Reconnect timer
-  this.reconnectTimer = null
-  // Is processing store?
-  this._storeProcessing = false
-  // Packet Ids are put into the store during store processing
-  this._packetIdsDuringStoreProcessing = {}
-  /**
-   * MessageIDs starting with 1
-   * ensure that nextId is min. 1, see https://github.com/mqttjs/MQTT.js/issues/810
-   */
-  this.nextId = Math.max(1, Math.floor(Math.random() * 65535))
-
-  // Inflight callbacks
-  this.outgoing = {}
-
-  // True if connection is first time.
-  this._firstConnection = true
-
-  // Mark disconnected on stream close
-  this.on('close', function () {
-    this.connected = false
-    clearTimeout(this.connackTimer)
-  })
-
-  // Send queued packets
-  this.on('connect', function () {
-    var queue = this.queue
-
-    function deliver () {
-      var entry = queue.shift()
-      var packet = null
-
-      if (!entry) {
-        return
-      }
-
-      packet = entry.packet
-
-      that._sendPacket(
-        packet,
-        function (err) {
-          if (entry.cb) {
-            entry.cb(err)
-          }
-          deliver()
-        }
-      )
-    }
-
-    deliver()
-  })
-
-  // Clear ping timer
-  this.on('close', function () {
-    if (that.pingTimer !== null) {
-      that.pingTimer.clear()
-      that.pingTimer = null
-    }
-  })
-
-  // Setup reconnect timer on disconnect
-  this.on('close', this._setupReconnect)
-
-  events.EventEmitter.call(this)
-
-  this._setupStream()
-}
-inherits(MqttClient, events.EventEmitter)
-
-/**
- * setup the event handlers in the inner stream.
- *
- * @api private
- */
-MqttClient.prototype._setupStream = function () {
-  var connectPacket
-  var that = this
-  var writable = new Writable()
-  var parser = mqttPacket.parser(this.options)
-  var completeParse = null
-  var packets = []
-
-  this._clearReconnect()
-
-  this.stream = this.streamBuilder(this)
-
-  parser.on('packet', function (packet) {
-    packets.push(packet)
-  })
-
-  function nextTickWork () {
-    if (packets.length) {
-      process.nextTick(work)
-    } else {
-      var done = completeParse
-      completeParse = null
-      done()
-    }
-  }
-
-  function work () {
-    var packet = packets.shift()
-
-    if (packet) {
-      that._handlePacket(packet, nextTickWork)
-    } else {
-      var done = completeParse
-      completeParse = null
-      if (done) done()
-    }
-  }
-
-  writable._write = function (buf, enc, done) {
-    completeParse = done
-    parser.parse(buf)
-    work()
-  }
-
-  this.stream.pipe(writable)
-
-  // Suppress connection errors
-  this.stream.on('error', nop)
-
-  // Echo stream close
-  this.stream.on('close', function () {
-    that.emit('close')
-  })
-
-  // Send a connect packet
-  connectPacket = Object.create(this.options)
-  connectPacket.cmd = 'connect'
-  // avoid message queue
-  sendPacket(this, connectPacket)
-
-  // Echo connection errors
-  parser.on('error', this.emit.bind(this, 'error'))
-
-  // auth
-  if (this.options.properties) {
-    if (!this.options.properties.authenticationMethod && this.options.properties.authenticationData) {
-      this.emit('error', new Error('Packet has no Authentication Method'))
-      return this
-    }
-    if (this.options.properties.authenticationMethod && this.options.authPacket && typeof this.options.authPacket === 'object') {
-      var authPacket = xtend({cmd: 'auth', reasonCode: 0}, this.options.authPacket)
-      sendPacket(this, authPacket)
-    }
-  }
-
-  // many drain listeners are needed for qos 1 callbacks if the connection is intermittent
-  this.stream.setMaxListeners(1000)
-
-  clearTimeout(this.connackTimer)
-  this.connackTimer = setTimeout(function () {
-    that._cleanUp(true)
-  }, this.options.connectTimeout)
-}
-
-MqttClient.prototype._handlePacket = function (packet, done) {
-  var options = this.options
-
-  if (options.protocolVersion === 5 && options.properties && options.properties.maximumPacketSize && options.properties.maximumPacketSize < packet.length) {
-    this.emit('error', new Error('exceeding packets size ' + packet.cmd))
-    this.end({reasonCode: 149, properties: { reasonString: 'Maximum packet size was exceeded' }})
-    return this
-  }
-
-  this.emit('packetreceive', packet)
-
-  switch (packet.cmd) {
-    case 'publish':
-      this._handlePublish(packet, done)
-      break
-    case 'puback':
-    case 'pubrec':
-    case 'pubcomp':
-    case 'suback':
-    case 'unsuback':
-      this._handleAck(packet)
-      done()
-      break
-    case 'pubrel':
-      this._handlePubrel(packet, done)
-      break
-    case 'connack':
-      this._handleConnack(packet)
-      done()
-      break
-    case 'pingresp':
-      this._handlePingresp(packet)
-      done()
-      break
-    case 'disconnect':
-      this._handleDisconnect(packet)
-      done()
-      break
-    default:
-      // do nothing
-      // maybe we should do an error handling
-      // or just log it
-      break
-  }
-}
-
-MqttClient.prototype._checkDisconnecting = function (callback) {
-  if (this.disconnecting) {
-    if (callback) {
-      callback(new Error('client disconnecting'))
-    } else {
-      this.emit('error', new Error('client disconnecting'))
-    }
-  }
-  return this.disconnecting
-}
-
-/**
- * publish - publish <message> to <topic>
- *
- * @param {String} topic - topic to publish to
- * @param {String, Buffer} message - message to publish
- * @param {Object} [opts] - publish options, includes:
- *    {Number} qos - qos level to publish on
- *    {Boolean} retain - whether or not to retain the message
- *    {Boolean} dup - whether or not mark a message as duplicate
- *    {Function} cbStorePut - function(){} called when message is put into `outgoingStore`
- * @param {Function} [callback] - function(err){}
- *    called when publish succeeds or fails
- * @returns {MqttClient} this - for chaining
- * @api public
- *
- * @example client.publish('topic', 'message');
- * @example
- *     client.publish('topic', 'message', {qos: 1, retain: true, dup: true});
- * @example client.publish('topic', 'message', console.log);
- */
-MqttClient.prototype.publish = function (topic, message, opts, callback) {
-  var packet
-  var options = this.options
-
-  // .publish(topic, payload, cb);
-  if (typeof opts === 'function') {
-    callback = opts
-    opts = null
-  }
-
-  // default opts
-  var defaultOpts = {qos: 0, retain: false, dup: false}
-  opts = xtend(defaultOpts, opts)
-
-  if (this._checkDisconnecting(callback)) {
-    return this
-  }
-
-  packet = {
-    cmd: 'publish',
-    topic: topic,
-    payload: message,
-    qos: opts.qos,
-    retain: opts.retain,
-    messageId: this._nextId(),
-    dup: opts.dup
-  }
-
-  if (options.protocolVersion === 5) {
-    packet.properties = opts.properties
-    if ((!options.properties && packet.properties && packet.properties.topicAlias) || ((opts.properties && options.properties) &&
-      ((opts.properties.topicAlias && options.properties.topicAliasMaximum && opts.properties.topicAlias > options.properties.topicAliasMaximum) ||
-        (!options.properties.topicAliasMaximum && opts.properties.topicAlias)))) {
-      /*
-      if we are don`t setup topic alias or
-      topic alias maximum less than topic alias or
-      server don`t give topic alias maximum,
-      we are removing topic alias from packet
-      */
-      delete packet.properties.topicAlias
-    }
-  }
-
-  switch (opts.qos) {
-    case 1:
-    case 2:
-      // Add to callbacks
-      this.outgoing[packet.messageId] = callback || nop
-      if (this._storeProcessing) {
-        this._packetIdsDuringStoreProcessing[packet.messageId] = false
-        this._storePacket(packet, undefined, opts.cbStorePut)
-      } else {
-        this._sendPacket(packet, undefined, opts.cbStorePut)
-      }
-      break
-    default:
-      if (this._storeProcessing) {
-        this._storePacket(packet, callback, opts.cbStorePut)
-      } else {
-        this._sendPacket(packet, callback, opts.cbStorePut)
-      }
-      break
-  }
-
-  return this
-}
-
-/**
- * subscribe - subscribe to <topic>
- *
- * @param {String, Array, Object} topic - topic(s) to subscribe to, supports objects in the form {'topic': qos}
- * @param {Object} [opts] - optional subscription options, includes:
- *    {Number} qos - subscribe qos level
- * @param {Function} [callback] - function(err, granted){} where:
- *    {Error} err - subscription error (none at the moment!)
- *    {Array} granted - array of {topic: 't', qos: 0}
- * @returns {MqttClient} this - for chaining
- * @api public
- * @example client.subscribe('topic');
- * @example client.subscribe('topic', {qos: 1});
- * @example client.subscribe({'topic': {qos: 0}, 'topic2': {qos: 1}}, console.log);
- * @example client.subscribe('topic', console.log);
- */
-MqttClient.prototype.subscribe = function () {
-  var packet
-  var args = new Array(arguments.length)
-  for (var i = 0; i < arguments.length; i++) {
-    args[i] = arguments[i]
-  }
-  var subs = []
-  var obj = args.shift()
-  var resubscribe = obj.resubscribe
-  var callback = args.pop() || nop
-  var opts = args.pop()
-  var invalidTopic
-  var that = this
-  var version = this.options.protocolVersion
-
-  delete obj.resubscribe
-
-  if (typeof obj === 'string') {
-    obj = [obj]
-  }
-
-  if (typeof callback !== 'function') {
-    opts = callback
-    callback = nop
-  }
-
-  invalidTopic = validations.validateTopics(obj)
-  if (invalidTopic !== null) {
-    setImmediate(callback, new Error('Invalid topic ' + invalidTopic))
-    return this
-  }
-
-  if (this._checkDisconnecting(callback)) {
-    return this
-  }
-
-  var defaultOpts = {
-    qos: 0
-  }
-  if (version === 5) {
-    defaultOpts.nl = false
-    defaultOpts.rap = false
-    defaultOpts.rh = 0
-  }
-  opts = xtend(defaultOpts, opts)
-
-  if (Array.isArray(obj)) {
-    obj.forEach(function (topic) {
-      if (!that._resubscribeTopics.hasOwnProperty(topic) ||
-        that._resubscribeTopics[topic].qos < opts.qos ||
-          resubscribe) {
-        var currentOpts = {
-          topic: topic,
-          qos: opts.qos
-        }
-        if (version === 5) {
-          currentOpts.nl = opts.nl
-          currentOpts.rap = opts.rap
-          currentOpts.rh = opts.rh
-        }
-        subs.push(currentOpts)
-      }
-    })
-  } else {
-    Object
-      .keys(obj)
-      .forEach(function (k) {
-        if (!that._resubscribeTopics.hasOwnProperty(k) ||
-          that._resubscribeTopics[k].qos < obj[k].qos ||
-            resubscribe) {
-          var currentOpts = {
-            topic: k,
-            qos: obj[k].qos
-          }
-          if (version === 5) {
-            currentOpts.nl = obj[k].nl
-            currentOpts.rap = obj[k].rap
-            currentOpts.rh = obj[k].rh
-          }
-          subs.push(currentOpts)
-        }
-      })
-  }
-
-  packet = {
-    cmd: 'subscribe',
-    subscriptions: subs,
-    qos: 1,
-    retain: false,
-    dup: false,
-    messageId: this._nextId()
-  }
-
-  if (opts.properties) {
-    packet.properties = opts.properties
-  }
-
-  if (!subs.length) {
-    callback(null, [])
-    return
-  }
-
-  // subscriptions to resubscribe to in case of disconnect
-  if (this.options.resubscribe) {
-    var topics = []
-    subs.forEach(function (sub) {
-      if (that.options.reconnectPeriod > 0) {
-        var topic = { qos: sub.qos }
-        if (version === 5) {
-          topic.nl = sub.nl || false
-          topic.rap = sub.rap || false
-          topic.rh = sub.rh || 0
-        }
-        that._resubscribeTopics[sub.topic] = topic
-        topics.push(sub.topic)
-      }
-    })
-    that.messageIdToTopic[packet.messageId] = topics
-  }
-
-  this.outgoing[packet.messageId] = function (err, packet) {
-    if (!err) {
-      var granted = packet.granted
-      for (var i = 0; i < granted.length; i += 1) {
-        subs[i].qos = granted[i]
-      }
-    }
-
-    callback(err, subs)
-  }
-
-  this._sendPacket(packet)
-
-  return this
-}
-
-/**
- * unsubscribe - unsubscribe from topic(s)
- *
- * @param {String, Array} topic - topics to unsubscribe from
- * @param {Object} [opts] - optional subscription options, includes:
- *    {Object} properties - properties of unsubscribe packet
- * @param {Function} [callback] - callback fired on unsuback
- * @returns {MqttClient} this - for chaining
- * @api public
- * @example client.unsubscribe('topic');
- * @example client.unsubscribe('topic', console.log);
- */
-MqttClient.prototype.unsubscribe = function () {
-  var packet = {
-    cmd: 'unsubscribe',
-    qos: 1,
-    messageId: this._nextId()
-  }
-  var that = this
-  var args = new Array(arguments.length)
-  for (var i = 0; i < arguments.length; i++) {
-    args[i] = arguments[i]
-  }
-  var topic = args.shift()
-  var callback = args.pop() || nop
-  var opts = args.pop()
-
-  if (typeof topic === 'string') {
-    topic = [topic]
-  }
-
-  if (typeof callback !== 'function') {
-    opts = callback
-    callback = nop
-  }
-
-  if (this._checkDisconnecting(callback)) {
-    return this
-  }
-
-  if (typeof topic === 'string') {
-    packet.unsubscriptions = [topic]
-  } else if (typeof topic === 'object' && topic.length) {
-    packet.unsubscriptions = topic
-  }
-
-  if (this.options.resubscribe) {
-    packet.unsubscriptions.forEach(function (topic) {
-      delete that._resubscribeTopics[topic]
-    })
-  }
-
-  if (typeof opts === 'object' && opts.properties) {
-    packet.properties = opts.properties
-  }
-
-  this.outgoing[packet.messageId] = callback
-
-  this._sendPacket(packet)
-
-  return this
-}
-
-/**
- * end - close connection
- *
- * @returns {MqttClient} this - for chaining
- * @param {Boolean} force - do not wait for all in-flight messages to be acked
- * @param {Function} cb - called when the client has been closed
- *
- * @api public
- */
-MqttClient.prototype.end = function () {
-  var that = this
-
-  var force = arguments[0]
-  var opts = arguments[1]
-  var cb = arguments[2]
-
-  if (force == null || typeof force !== 'boolean') {
-    cb = opts || nop
-    opts = force
-    force = false
-    if (typeof opts !== 'object') {
-      cb = opts
-      opts = null
-      if (typeof cb !== 'function') {
-        cb = nop
-      }
-    }
-  }
-
-  if (typeof opts !== 'object') {
-    cb = opts
-    opts = null
-  }
-
-  cb = cb || nop
-
-  function closeStores () {
-    that.disconnected = true
-    that.incomingStore.close(function () {
-      that.outgoingStore.close(function () {
-        if (cb) {
-          cb.apply(null, arguments)
-        }
-        that.emit('end')
-      })
-    })
-    if (that._deferredReconnect) {
-      that._deferredReconnect()
-    }
-  }
-
-  function finish () {
-    // defer closesStores of an I/O cycle,
-    // just to make sure things are
-    // ok for websockets
-    that._cleanUp(force, setImmediate.bind(null, closeStores), opts)
-  }
-
-  if (this.disconnecting) {
-    return this
-  }
-
-  this._clearReconnect()
-
-  this.disconnecting = true
-
-  if (!force && Object.keys(this.outgoing).length > 0) {
-    // wait 10ms, just to be sure we received all of it
-    this.once('outgoingEmpty', setTimeout.bind(null, finish, 10))
-  } else {
-    finish()
-  }
-
-  return this
-}
-
-/**
- * removeOutgoingMessage - remove a message in outgoing store
- * the outgoing callback will be called withe Error('Message removed') if the message is removed
- *
- * @param {Number} mid - messageId to remove message
- * @returns {MqttClient} this - for chaining
- * @api public
- *
- * @example client.removeOutgoingMessage(client.getLastMessageId());
- */
-MqttClient.prototype.removeOutgoingMessage = function (mid) {
-  var cb = this.outgoing[mid]
-  delete this.outgoing[mid]
-  this.outgoingStore.del({messageId: mid}, function () {
-    cb(new Error('Message removed'))
-  })
-  return this
-}
-
-/**
- * reconnect - connect again using the same options as connect()
- *
- * @param {Object} [opts] - optional reconnect options, includes:
- *    {Store} incomingStore - a store for the incoming packets
- *    {Store} outgoingStore - a store for the outgoing packets
- *    if opts is not given, current stores are used
- * @returns {MqttClient} this - for chaining
- *
- * @api public
- */
-MqttClient.prototype.reconnect = function (opts) {
-  var that = this
-  var f = function () {
-    if (opts) {
-      that.options.incomingStore = opts.incomingStore
-      that.options.outgoingStore = opts.outgoingStore
-    } else {
-      that.options.incomingStore = null
-      that.options.outgoingStore = null
-    }
-    that.incomingStore = that.options.incomingStore || new Store()
-    that.outgoingStore = that.options.outgoingStore || new Store()
-    that.disconnecting = false
-    that.disconnected = false
-    that._deferredReconnect = null
-    that._reconnect()
-  }
-
-  if (this.disconnecting && !this.disconnected) {
-    this._deferredReconnect = f
-  } else {
-    f()
-  }
-  return this
-}
-
-/**
- * _reconnect - implement reconnection
- * @api privateish
- */
-MqttClient.prototype._reconnect = function () {
-  this.emit('reconnect')
-  this._setupStream()
-}
-
-/**
- * _setupReconnect - setup reconnect timer
- */
-MqttClient.prototype._setupReconnect = function () {
-  var that = this
-
-  if (!that.disconnecting && !that.reconnectTimer && (that.options.reconnectPeriod > 0)) {
-    if (!this.reconnecting) {
-      this.emit('offline')
-      this.reconnecting = true
-    }
-    that.reconnectTimer = setInterval(function () {
-      that._reconnect()
-    }, that.options.reconnectPeriod)
-  }
-}
-
-/**
- * _clearReconnect - clear the reconnect timer
- */
-MqttClient.prototype._clearReconnect = function () {
-  if (this.reconnectTimer) {
-    clearInterval(this.reconnectTimer)
-    this.reconnectTimer = null
-  }
-}
-
-/**
- * _cleanUp - clean up on connection end
- * @api private
- */
-MqttClient.prototype._cleanUp = function (forced, done) {
-  var opts = arguments[2]
-  if (done) {
-    this.stream.on('close', done)
-  }
-
-  if (forced) {
-    if ((this.options.reconnectPeriod === 0) && this.options.clean) {
-      flush(this.outgoing)
-    }
-    this.stream.destroy()
-  } else {
-    var packet = xtend({ cmd: 'disconnect' }, opts)
-    this._sendPacket(
-      packet,
-      setImmediate.bind(
-        null,
-        this.stream.end.bind(this.stream)
-      )
-    )
-  }
-
-  if (!this.disconnecting) {
-    this._clearReconnect()
-    this._setupReconnect()
-  }
-
-  if (this.pingTimer !== null) {
-    this.pingTimer.clear()
-    this.pingTimer = null
-  }
-
-  if (done && !this.connected) {
-    this.stream.removeListener('close', done)
-    done()
-  }
-}
-
-/**
- * _sendPacket - send or queue a packet
- * @param {String} type - packet type (see `protocol`)
- * @param {Object} packet - packet options
- * @param {Function} cb - callback when the packet is sent
- * @param {Function} cbStorePut - called when message is put into outgoingStore
- * @api private
- */
-MqttClient.prototype._sendPacket = function (packet, cb, cbStorePut) {
-  cbStorePut = cbStorePut || nop
-
-  if (!this.connected) {
-    this._storePacket(packet, cb, cbStorePut)
-    return
-  }
-
-  // When sending a packet, reschedule the ping timer
-  this._shiftPingInterval()
-
-  switch (packet.cmd) {
-    case 'publish':
-      break
-    case 'pubrel':
-      storeAndSend(this, packet, cb, cbStorePut)
-      return
-    default:
-      sendPacket(this, packet, cb)
-      return
-  }
-
-  switch (packet.qos) {
-    case 2:
-    case 1:
-      storeAndSend(this, packet, cb, cbStorePut)
-      break
-    /**
-     * no need of case here since it will be caught by default
-     * and jshint comply that before default it must be a break
-     * anyway it will result in -1 evaluation
-     */
-    case 0:
-      /* falls through */
-    default:
-      sendPacket(this, packet, cb)
-      break
-  }
-}
-
-/**
- * _storePacket - queue a packet
- * @param {String} type - packet type (see `protocol`)
- * @param {Object} packet - packet options
- * @param {Function} cb - callback when the packet is sent
- * @param {Function} cbStorePut - called when message is put into outgoingStore
- * @api private
- */
-MqttClient.prototype._storePacket = function (packet, cb, cbStorePut) {
-  cbStorePut = cbStorePut || nop
-
-  if (((packet.qos || 0) === 0 && this.queueQoSZero) || packet.cmd !== 'publish') {
-    this.queue.push({ packet: packet, cb: cb })
-  } else if (packet.qos > 0) {
-    cb = this.outgoing[packet.messageId]
-    this.outgoingStore.put(packet, function (err) {
-      if (err) {
-        return cb && cb(err)
-      }
-      cbStorePut()
-    })
-  } else if (cb) {
-    cb(new Error('No connection to broker'))
-  }
-}
-
-/**
- * _setupPingTimer - setup the ping timer
- *
- * @api private
- */
-MqttClient.prototype._setupPingTimer = function () {
-  var that = this
-
-  if (!this.pingTimer && this.options.keepalive) {
-    this.pingResp = true
-    this.pingTimer = reInterval(function () {
-      that._checkPing()
-    }, this.options.keepalive * 1000)
-  }
-}
-
-/**
- * _shiftPingInterval - reschedule the ping interval
- *
- * @api private
- */
-MqttClient.prototype._shiftPingInterval = function () {
-  if (this.pingTimer && this.options.keepalive && this.options.reschedulePings) {
-    this.pingTimer.reschedule(this.options.keepalive * 1000)
-  }
-}
-/**
- * _checkPing - check if a pingresp has come back, and ping the server again
- *
- * @api private
- */
-MqttClient.prototype._checkPing = function () {
-  if (this.pingResp) {
-    this.pingResp = false
-    this._sendPacket({ cmd: 'pingreq' })
-  } else {
-    // do a forced cleanup since socket will be in bad shape
-    this._cleanUp(true)
-  }
-}
-
-/**
- * _handlePingresp - handle a pingresp
- *
- * @api private
- */
-MqttClient.prototype._handlePingresp = function () {
-  this.pingResp = true
-}
-
-/**
- * _handleConnack
- *
- * @param {Object} packet
- * @api private
- */
-
-MqttClient.prototype._handleConnack = function (packet) {
-  var options = this.options
-  var version = options.protocolVersion
-  var rc = version === 5 ? packet.reasonCode : packet.returnCode
-
-  clearTimeout(this.connackTimer)
-
-  if (packet.properties) {
-    if (packet.properties.topicAliasMaximum) {
-      if (!options.properties) { options.properties = {} }
-      options.properties.topicAliasMaximum = packet.properties.topicAliasMaximum
-    }
-    if (packet.properties.serverKeepAlive && options.keepalive) {
-      options.keepalive = packet.properties.serverKeepAlive
-      this._shiftPingInterval()
-    }
-    if (packet.properties.maximumPacketSize) {
-      if (!options.properties) { options.properties = {} }
-      options.properties.maximumPacketSize = packet.properties.maximumPacketSize
-    }
-  }
-
-  if (rc === 0) {
-    this.reconnecting = false
-    this._onConnect(packet)
-  } else if (rc > 0) {
-    var err = new Error('Connection refused: ' + errors[rc])
-    err.code = rc
-    this.emit('error', err)
-  }
-}
-
-/**
- * _handlePublish
- *
- * @param {Object} packet
- * @api private
- */
-/*
-those late 2 case should be rewrite to comply with coding style:
-
-case 1:
-case 0:
-  // do not wait sending a puback
-  // no callback passed
-  if (1 === qos) {
-    this._sendPacket({
-      cmd: 'puback',
-      messageId: mid
-    });
-  }
-  // emit the message event for both qos 1 and 0
-  this.emit('message', topic, message, packet);
-  this.handleMessage(packet, done);
-  break;
-default:
-  // do nothing but every switch mus have a default
-  // log or throw an error about unknown qos
-  break;
-
-for now i just suppressed the warnings
-*/
-MqttClient.prototype._handlePublish = function (packet, done) {
-  done = typeof done !== 'undefined' ? done : nop
-  var topic = packet.topic.toString()
-  var message = packet.payload
-  var qos = packet.qos
-  var mid = packet.messageId
-  var that = this
-  var options = this.options
-  var validReasonCodes = [0, 16, 128, 131, 135, 144, 145, 151, 153]
-
-  switch (qos) {
-    case 2: {
-      options.customHandleAcks(topic, message, packet, function (error, code) {
-        if (!(error instanceof Error)) {
-          code = error
-          error = null
-        }
-        if (error) { return that.emit('error', error) }
-        if (validReasonCodes.indexOf(code) === -1) { return that.emit('error', new Error('Wrong reason code for pubrec')) }
-        if (code) {
-          that._sendPacket({cmd: 'pubrec', messageId: mid, reasonCode: code}, done)
-        } else {
-          that.incomingStore.put(packet, function () {
-            that._sendPacket({cmd: 'pubrec', messageId: mid}, done)
-          })
-        }
-      })
-      break
-    }
-    case 1: {
-      // emit the message event
-      options.customHandleAcks(topic, message, packet, function (error, code) {
-        if (!(error instanceof Error)) {
-          code = error
-          error = null
-        }
-        if (error) { return that.emit('error', error) }
-        if (validReasonCodes.indexOf(code) === -1) { return that.emit('error', new Error('Wrong reason code for puback')) }
-        if (!code) { that.emit('message', topic, message, packet) }
-        that.handleMessage(packet, function (err) {
-          if (err) {
-            return done && done(err)
-          }
-          that._sendPacket({cmd: 'puback', messageId: mid, reasonCode: code}, done)
-        })
-      })
-      break
-    }
-    case 0:
-      // emit the message event
-      this.emit('message', topic, message, packet)
-      this.handleMessage(packet, done)
-      break
-    default:
-      // do nothing
-      // log or throw an error about unknown qos
-      break
-  }
-}
-
-/**
- * Handle messages with backpressure support, one at a time.
- * Override at will.
- *
- * @param Packet packet the packet
- * @param Function callback call when finished
- * @api public
- */
-MqttClient.prototype.handleMessage = function (packet, callback) {
-  callback()
-}
-
-/**
- * _handleAck
- *
- * @param {Object} packet
- * @api private
- */
-
-MqttClient.prototype._handleAck = function (packet) {
-  /* eslint no-fallthrough: "off" */
-  var mid = packet.messageId
-  var type = packet.cmd
-  var response = null
-  var cb = this.outgoing[mid]
-  var that = this
-  var err
-
-  if (!cb) {
-    // Server sent an ack in error, ignore it.
-    return
-  }
-
-  // Process
-  switch (type) {
-    case 'pubcomp':
-      // same thing as puback for QoS 2
-    case 'puback':
-      var pubackRC = packet.reasonCode
-      // Callback - we're done
-      if (pubackRC && pubackRC > 0 && pubackRC !== 16) {
-        err = new Error('Publish error: ' + errors[pubackRC])
-        err.code = pubackRC
-        cb(err, packet)
-      }
-      delete this.outgoing[mid]
-      this.outgoingStore.del(packet, cb)
-      break
-    case 'pubrec':
-      response = {
-        cmd: 'pubrel',
-        qos: 2,
-        messageId: mid
-      }
-      var pubrecRC = packet.reasonCode
-
-      if (pubrecRC && pubrecRC > 0 && pubrecRC !== 16) {
-        err = new Error('Publish error: ' + errors[pubrecRC])
-        err.code = pubrecRC
-        cb(err, packet)
-      } else {
-        this._sendPacket(response)
-      }
-      break
-    case 'suback':
-      delete this.outgoing[mid]
-      for (var grantedI = 0; grantedI < packet.granted.length; grantedI++) {
-        if ((packet.granted[grantedI] & 0x80) !== 0) {
-          // suback with Failure status
-          var topics = this.messageIdToTopic[mid]
-          if (topics) {
-            topics.forEach(function (topic) {
-              delete that._resubscribeTopics[topic]
-            })
-          }
-        }
-      }
-      cb(null, packet)
-      break
-    case 'unsuback':
-      delete this.outgoing[mid]
-      cb(null)
-      break
-    default:
-      that.emit('error', new Error('unrecognized packet type'))
-  }
-
-  if (this.disconnecting &&
-      Object.keys(this.outgoing).length === 0) {
-    this.emit('outgoingEmpty')
-  }
-}
-
-/**
- * _handlePubrel
- *
- * @param {Object} packet
- * @api private
- */
-MqttClient.prototype._handlePubrel = function (packet, callback) {
-  callback = typeof callback !== 'undefined' ? callback : nop
-  var mid = packet.messageId
-  var that = this
-
-  var comp = {cmd: 'pubcomp', messageId: mid}
-
-  that.incomingStore.get(packet, function (err, pub) {
-    if (!err) {
-      that.emit('message', pub.topic, pub.payload, pub)
-      that.handleMessage(pub, function (err) {
-        if (err) {
-          return callback(err)
-        }
-        that.incomingStore.del(pub, nop)
-        that._sendPacket(comp, callback)
-      })
-    } else {
-      that._sendPacket(comp, callback)
-    }
-  })
-}
-
-/**
- * _handleDisconnect
- *
- * @param {Object} packet
- * @api private
- */
-MqttClient.prototype._handleDisconnect = function (packet) {
-  this.emit('close', packet)
-  this.end(true)
-}
-
-/**
- * _nextId
- * @return unsigned int
- */
-MqttClient.prototype._nextId = function () {
-  // id becomes current state of this.nextId and increments afterwards
-  var id = this.nextId++
-  // Ensure 16 bit unsigned int (max 65535, nextId got one higher)
-  if (this.nextId === 65536) {
-    this.nextId = 1
-  }
-  return id
-}
-
-/**
- * getLastMessageId
- * @return unsigned int
- */
-MqttClient.prototype.getLastMessageId = function () {
-  return (this.nextId === 1) ? 65535 : (this.nextId - 1)
-}
-
-/**
- * _resubscribe
- * @api private
- */
-MqttClient.prototype._resubscribe = function (connack) {
-  if (!this._firstConnection &&
-      (this.options.clean || (this.options.protocolVersion === 5 && !connack.sessionPresent)) &&
-      Object.keys(this._resubscribeTopics).length > 0) {
-    if (this.options.resubscribe) {
-      this._resubscribeTopics.resubscribe = true
-      this.subscribe(this._resubscribeTopics)
-    } else {
-      this._resubscribeTopics = {}
-    }
-  }
-
-  this._firstConnection = false
-}
-
-/**
- * _onConnect
- *
- * @api private
- */
-MqttClient.prototype._onConnect = function (packet) {
-  if (this.disconnected) {
-    this.emit('connect', packet)
-    return
-  }
-
-  var that = this
-
-  this._setupPingTimer()
-  this._resubscribe(packet)
-
-  this.connected = true
-
-  function startStreamProcess () {
-    var outStore = that.outgoingStore.createStream()
-
-    function clearStoreProcessing () {
-      that._storeProcessing = false
-      that._packetIdsDuringStoreProcessing = {}
-    }
-
-    that.once('close', remove)
-    outStore.on('error', function (err) {
-      clearStoreProcessing()
-      that.removeListener('close', remove)
-      that.emit('error', err)
-    })
-
-    function remove () {
-      outStore.destroy()
-      outStore = null
-      clearStoreProcessing()
-    }
-
-    function storeDeliver () {
-      // edge case, we wrapped this twice
-      if (!outStore) {
-        return
-      }
-      that._storeProcessing = true
-
-      var packet = outStore.read(1)
-
-      var cb
-
-      if (!packet) {
-        // read when data is available in the future
-        outStore.once('readable', storeDeliver)
-        return
-      }
-
-      // Skip already processed store packets
-      if (that._packetIdsDuringStoreProcessing[packet.messageId]) {
-        storeDeliver()
-        return
-      }
-
-      // Avoid unnecessary stream read operations when disconnected
-      if (!that.disconnecting && !that.reconnectTimer) {
-        cb = that.outgoing[packet.messageId]
-        that.outgoing[packet.messageId] = function (err, status) {
-          // Ensure that the original callback passed in to publish gets invoked
-          if (cb) {
-            cb(err, status)
-          }
-
-          storeDeliver()
-        }
-        that._packetIdsDuringStoreProcessing[packet.messageId] = true
-        that._sendPacket(packet)
-      } else if (outStore.destroy) {
-        outStore.destroy()
-      }
-    }
-
-    outStore.on('end', function () {
-      var allProcessed = true
-      for (var id in that._packetIdsDuringStoreProcessing) {
-        if (!that._packetIdsDuringStoreProcessing[id]) {
-          allProcessed = false
-          break
-        }
-      }
-      if (allProcessed) {
-        clearStoreProcessing()
-        that.removeListener('close', remove)
-        that.emit('connect', packet)
-      } else {
-        startStreamProcess()
-      }
-    })
-    storeDeliver()
-  }
-  // start flowing
-  startStreamProcess()
-}
-
-module.exports = MqttClient
-
-}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./store":8,"./validations":9,"_process":233,"events":189,"inherits":206,"mqtt-packet":215,"readable-stream":261,"reinterval":264,"xtend":288}],2:[function(require,module,exports){
-(function (Buffer){
-'use strict'
-
-var Transform = require('readable-stream').Transform
-var duplexify = require('duplexify')
-var base64 = require('base64-js')
-
-/* global FileReader */
-var my
-var proxy
-var stream
-var isInitialized = false
-
-function buildProxy () {
-  var proxy = new Transform()
-  proxy._write = function (chunk, encoding, next) {
-    my.sendSocketMessage({
-      data: chunk.buffer,
-      success: function () {
-        next()
-      },
-      fail: function () {
-        next(new Error())
-      }
-    })
-  }
-  proxy._flush = function socketEnd (done) {
-    my.closeSocket({
-      success: function () {
-        done()
-      }
-    })
-  }
-
-  return proxy
-}
-
-function setDefaultOpts (opts) {
-  if (!opts.hostname) {
-    opts.hostname = 'localhost'
-  }
-  if (!opts.path) {
-    opts.path = '/'
-  }
-
-  if (!opts.wsOptions) {
-    opts.wsOptions = {}
-  }
-}
-
-function buildUrl (opts, client) {
-  var protocol = opts.protocol === 'alis' ? 'wss' : 'ws'
-  var url = protocol + '://' + opts.hostname + opts.path
-  if (opts.port && opts.port !== 80 && opts.port !== 443) {
-    url = protocol + '://' + opts.hostname + ':' + opts.port + opts.path
-  }
-  if (typeof (opts.transformWsUrl) === 'function') {
-    url = opts.transformWsUrl(url, opts, client)
-  }
-  return url
-}
-
-function bindEventHandler () {
-  if (isInitialized) return
-
-  isInitialized = true
-
-  my.onSocketOpen(function () {
-    stream.setReadable(proxy)
-    stream.setWritable(proxy)
-    stream.emit('connect')
-  })
-
-  my.onSocketMessage(function (res) {
-    if (typeof res.data === 'string') {
-      var array = base64.toByteArray(res.data)
-      var buffer = Buffer.from(array)
-      proxy.push(buffer)
-    } else {
-      var reader = new FileReader()
-      reader.addEventListener('load', function () {
-        var data = reader.result
-
-        if (data instanceof ArrayBuffer) data = Buffer.from(data)
-        else data = Buffer.from(data, 'utf8')
-        proxy.push(data)
-      })
-      reader.readAsArrayBuffer(res.data)
-    }
-  })
-
-  my.onSocketClose(function () {
-    stream.end()
-    stream.destroy()
-  })
-
-  my.onSocketError(function (res) {
-    stream.destroy(res)
-  })
-}
-
-function buildStream (client, opts) {
-  opts.hostname = opts.hostname || opts.host
-
-  if (!opts.hostname) {
-    throw new Error('Could not determine host. Specify host manually.')
-  }
-
-  var websocketSubProtocol =
-    (opts.protocolId === 'MQIsdp') && (opts.protocolVersion === 3)
-      ? 'mqttv3.1'
-      : 'mqtt'
-
-  setDefaultOpts(opts)
-
-  var url = buildUrl(opts, client)
-  my = opts.my
-  my.connectSocket({
-    url: url,
-    protocols: websocketSubProtocol
-  })
-
-  proxy = buildProxy()
-  stream = duplexify.obj()
-
-  bindEventHandler()
-
-  return stream
-}
-
-module.exports = buildStream
-
-}).call(this,require("buffer").Buffer)
-},{"base64-js":57,"buffer":90,"duplexify":111,"readable-stream":261}],3:[function(require,module,exports){
-(function (process){
-'use strict'
-
-var MqttClient = require('../client')
-var Store = require('../store')
-var url = require('url')
-var xtend = require('xtend')
-var protocols = {}
-
-if (process.title !== 'browser') {
-  protocols.mqtt = require('./tcp')
-  protocols.tcp = require('./tcp')
-  protocols.ssl = require('./tls')
-  protocols.tls = require('./tls')
-  protocols.mqtts = require('./tls')
-} else {
-  protocols.wx = require('./wx')
-  protocols.wxs = require('./wx')
-
-  protocols.ali = require('./ali')
-  protocols.alis = require('./ali')
-}
-
-protocols.ws = require('./ws')
-protocols.wss = require('./ws')
-
-/**
- * Parse the auth attribute and merge username and password in the options object.
- *
- * @param {Object} [opts] option object
- */
-function parseAuthOptions (opts) {
-  var matches
-  if (opts.auth) {
-    matches = opts.auth.match(/^(.+):(.+)$/)
-    if (matches) {
-      opts.username = matches[1]
-      opts.password = matches[2]
-    } else {
-      opts.username = opts.auth
-    }
-  }
-}
-
-/**
- * connect - connect to an MQTT broker.
- *
- * @param {String} [brokerUrl] - url of the broker, optional
- * @param {Object} opts - see MqttClient#constructor
- */
-function connect (brokerUrl, opts) {
-  if ((typeof brokerUrl === 'object') && !opts) {
-    opts = brokerUrl
-    brokerUrl = null
-  }
-
-  opts = opts || {}
-
-  if (brokerUrl) {
-    var parsed = url.parse(brokerUrl, true)
-    if (parsed.port != null) {
-      parsed.port = Number(parsed.port)
-    }
-
-    opts = xtend(parsed, opts)
-
-    if (opts.protocol === null) {
-      throw new Error('Missing protocol')
-    }
-    opts.protocol = opts.protocol.replace(/:$/, '')
-  }
-
-  // merge in the auth options if supplied
-  parseAuthOptions(opts)
-
-  // support clientId passed in the query string of the url
-  if (opts.query && typeof opts.query.clientId === 'string') {
-    opts.clientId = opts.query.clientId
-  }
-
-  if (opts.cert && opts.key) {
-    if (opts.protocol) {
-      if (['mqtts', 'wss', 'wxs', 'alis'].indexOf(opts.protocol) === -1) {
-        switch (opts.protocol) {
-          case 'mqtt':
-            opts.protocol = 'mqtts'
-            break
-          case 'ws':
-            opts.protocol = 'wss'
-            break
-          case 'wx':
-            opts.protocol = 'wxs'
-            break
-          case 'ali':
-            opts.protocol = 'alis'
-            break
-          default:
-            throw new Error('Unknown protocol for secure connection: "' + opts.protocol + '"!')
-        }
-      }
-    } else {
-      // don't know what protocol he want to use, mqtts or wss
-      throw new Error('Missing secure protocol key')
-    }
-  }
-
-  if (!protocols[opts.protocol]) {
-    var isSecure = ['mqtts', 'wss'].indexOf(opts.protocol) !== -1
-    opts.protocol = [
-      'mqtt',
-      'mqtts',
-      'ws',
-      'wss',
-      'wx',
-      'wxs',
-      'ali',
-      'alis'
-    ].filter(function (key, index) {
-      if (isSecure && index % 2 === 0) {
-        // Skip insecure protocols when requesting a secure one.
-        return false
-      }
-      return (typeof protocols[key] === 'function')
-    })[0]
-  }
-
-  if (opts.clean === false && !opts.clientId) {
-    throw new Error('Missing clientId for unclean clients')
-  }
-
-  if (opts.protocol) {
-    opts.defaultProtocol = opts.protocol
-  }
-
-  function wrapper (client) {
-    if (opts.servers) {
-      if (!client._reconnectCount || client._reconnectCount === opts.servers.length) {
-        client._reconnectCount = 0
-      }
-
-      opts.host = opts.servers[client._reconnectCount].host
-      opts.port = opts.servers[client._reconnectCount].port
-      opts.protocol = (!opts.servers[client._reconnectCount].protocol ? opts.defaultProtocol : opts.servers[client._reconnectCount].protocol)
-      opts.hostname = opts.host
-
-      client._reconnectCount++
-    }
-
-    return protocols[opts.protocol](client, opts)
-  }
-
-  return new MqttClient(wrapper, opts)
-}
-
-module.exports = connect
-module.exports.connect = connect
-module.exports.MqttClient = MqttClient
-module.exports.Store = Store
-
-}).call(this,require('_process'))
-},{"../client":1,"../store":8,"./ali":2,"./tcp":4,"./tls":5,"./ws":6,"./wx":7,"_process":233,"url":279,"xtend":288}],4:[function(require,module,exports){
-'use strict'
-var net = require('net')
-
-/*
-  variables port and host can be removed since
-  you have all required information in opts object
-*/
-function buildBuilder (client, opts) {
-  var port, host
-  opts.port = opts.port || 1883
-  opts.hostname = opts.hostname || opts.host || 'localhost'
-
-  port = opts.port
-  host = opts.hostname
-
-  return net.createConnection(port, host)
-}
-
-module.exports = buildBuilder
-
-},{"net":61}],5:[function(require,module,exports){
-'use strict'
-var tls = require('tls')
-
-function buildBuilder (mqttClient, opts) {
-  var connection
-  opts.port = opts.port || 8883
-  opts.host = opts.hostname || opts.host || 'localhost'
-
-  opts.rejectUnauthorized = opts.rejectUnauthorized !== false
-
-  delete opts.path
-
-  connection = tls.connect(opts)
-  /* eslint no-use-before-define: [2, "nofunc"] */
-  connection.on('secureConnect', function () {
-    if (opts.rejectUnauthorized && !connection.authorized) {
-      connection.emit('error', new Error('TLS not authorized'))
-    } else {
-      connection.removeListener('error', handleTLSerrors)
-    }
-  })
-
-  function handleTLSerrors (err) {
-    // How can I get verify this error is a tls error?
-    if (opts.rejectUnauthorized) {
-      mqttClient.emit('error', err)
-    }
-
-    // close this connection to match the behaviour of net
-    // otherwise all we get is an error from the connection
-    // and close event doesn't fire. This is a work around
-    // to enable the reconnect code to work the same as with
-    // net.createConnection
-    connection.end()
-  }
-
-  connection.on('error', handleTLSerrors)
-  return connection
-}
-
-module.exports = buildBuilder
-
-},{"tls":61}],6:[function(require,module,exports){
-(function (process){
-'use strict'
-
-var websocket = require('websocket-stream')
-var urlModule = require('url')
-var WSS_OPTIONS = [
-  'rejectUnauthorized',
-  'ca',
-  'cert',
-  'key',
-  'pfx',
-  'passphrase'
-]
-var IS_BROWSER = process.title === 'browser'
-
-function buildUrl (opts, client) {
-  var url = opts.protocol + '://' + opts.hostname + ':' + opts.port + opts.path
-  if (typeof (opts.transformWsUrl) === 'function') {
-    url = opts.transformWsUrl(url, opts, client)
-  }
-  return url
-}
-
-function setDefaultOpts (opts) {
-  if (!opts.hostname) {
-    opts.hostname = 'localhost'
-  }
-  if (!opts.port) {
-    if (opts.protocol === 'wss') {
-      opts.port = 443
-    } else {
-      opts.port = 80
-    }
-  }
-  if (!opts.path) {
-    opts.path = '/'
-  }
-
-  if (!opts.wsOptions) {
-    opts.wsOptions = {}
-  }
-  if (!IS_BROWSER && opts.protocol === 'wss') {
-    // Add cert/key/ca etc options
-    WSS_OPTIONS.forEach(function (prop) {
-      if (opts.hasOwnProperty(prop) && !opts.wsOptions.hasOwnProperty(prop)) {
-        opts.wsOptions[prop] = opts[prop]
-      }
-    })
-  }
-}
-
-function createWebSocket (client, opts) {
-  var websocketSubProtocol =
-    (opts.protocolId === 'MQIsdp') && (opts.protocolVersion === 3)
-      ? 'mqttv3.1'
-      : 'mqtt'
-
-  setDefaultOpts(opts)
-  var url = buildUrl(opts, client)
-  return websocket(url, [websocketSubProtocol], opts.wsOptions)
-}
-
-function buildBuilder (client, opts) {
-  return createWebSocket(client, opts)
-}
-
-function buildBuilderBrowser (client, opts) {
-  if (!opts.hostname) {
-    opts.hostname = opts.host
-  }
-
-  if (!opts.hostname) {
-    // Throwing an error in a Web Worker if no `hostname` is given, because we
-    // can not determine the `hostname` automatically.  If connecting to
-    // localhost, please supply the `hostname` as an argument.
-    if (typeof (document) === 'undefined') {
-      throw new Error('Could not determine host. Specify host manually.')
-    }
-    var parsed = urlModule.parse(document.URL)
-    opts.hostname = parsed.hostname
-
-    if (!opts.port) {
-      opts.port = parsed.port
-    }
-  }
-  return createWebSocket(client, opts)
-}
-
-if (IS_BROWSER) {
-  module.exports = buildBuilderBrowser
-} else {
-  module.exports = buildBuilder
-}
-
-}).call(this,require('_process'))
-},{"_process":233,"url":279,"websocket-stream":285}],7:[function(require,module,exports){
-(function (process,Buffer){
-'use strict'
-
-var Transform = require('readable-stream').Transform
-var duplexify = require('duplexify')
-
-/* global wx */
-var socketTask
-var proxy
-var stream
-
-function buildProxy () {
-  var proxy = new Transform()
-  proxy._write = function (chunk, encoding, next) {
-    socketTask.send({
-      data: chunk.buffer,
-      success: function () {
-        next()
-      },
-      fail: function (errMsg) {
-        next(new Error(errMsg))
-      }
-    })
-  }
-  proxy._flush = function socketEnd (done) {
-    socketTask.close({
-      success: function () {
-        done()
-      }
-    })
-  }
-
-  return proxy
-}
-
-function setDefaultOpts (opts) {
-  if (!opts.hostname) {
-    opts.hostname = 'localhost'
-  }
-  if (!opts.path) {
-    opts.path = '/'
-  }
-
-  if (!opts.wsOptions) {
-    opts.wsOptions = {}
-  }
-}
-
-function buildUrl (opts, client) {
-  var protocol = opts.protocol === 'wxs' ? 'wss' : 'ws'
-  var url = protocol + '://' + opts.hostname + opts.path
-  if (opts.port && opts.port !== 80 && opts.port !== 443) {
-    url = protocol + '://' + opts.hostname + ':' + opts.port + opts.path
-  }
-  if (typeof (opts.transformWsUrl) === 'function') {
-    url = opts.transformWsUrl(url, opts, client)
-  }
-  return url
-}
-
-function bindEventHandler () {
-  socketTask.onOpen(function () {
-    stream.setReadable(proxy)
-    stream.setWritable(proxy)
-    stream.emit('connect')
-  })
-
-  socketTask.onMessage(function (res) {
-    var data = res.data
-
-    if (data instanceof ArrayBuffer) data = Buffer.from(data)
-    else data = Buffer.from(data, 'utf8')
-    proxy.push(data)
-  })
-
-  socketTask.onClose(function () {
-    stream.end()
-    stream.destroy()
-  })
-
-  socketTask.onError(function (res) {
-    stream.destroy(new Error(res.errMsg))
-  })
-}
-
-function buildStream (client, opts) {
-  opts.hostname = opts.hostname || opts.host
-
-  if (!opts.hostname) {
-    throw new Error('Could not determine host. Specify host manually.')
-  }
-
-  var websocketSubProtocol =
-    (opts.protocolId === 'MQIsdp') && (opts.protocolVersion === 3)
-      ? 'mqttv3.1'
-      : 'mqtt'
-
-  setDefaultOpts(opts)
-
-  var url = buildUrl(opts, client)
-  socketTask = wx.connectSocket({
-    url: url,
-    protocols: websocketSubProtocol
-  })
-
-  proxy = buildProxy()
-  stream = duplexify.obj()
-  stream._destroy = function (err, cb) {
-    socketTask.close({
-      success: function () {
-        cb && cb(err)
-      }
-    })
-  }
-
-  var destroyRef = stream.destroy
-  stream.destroy = function () {
-    stream.destroy = destroyRef
-
-    var self = this
-    process.nextTick(function () {
-      socketTask.close({
-        fail: function () {
-          self._destroy(new Error())
-        }
-      })
-    })
-  }.bind(stream)
-
-  bindEventHandler()
-
-  return stream
-}
-
-module.exports = buildStream
-
-}).call(this,require('_process'),require("buffer").Buffer)
-},{"_process":233,"buffer":90,"duplexify":111,"readable-stream":261}],8:[function(require,module,exports){
-(function (process){
-'use strict'
-
-/**
- * Module dependencies
- */
-var xtend = require('xtend')
-
-var Readable = require('readable-stream').Readable
-var streamsOpts = { objectMode: true }
-var defaultStoreOptions = {
-  clean: true
-}
-
-/**
- * es6-map can preserve insertion order even if ES version is older.
- *
- * https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map#Description
- * It should be noted that a Map which is a map of an object, especially
- * a dictionary of dictionaries, will only map to the object's insertion
- * order. In ES2015 this is ordered for objects but for older versions of
- * ES, this may be random and not ordered.
- *
- */
-var Map = require('es6-map')
-
-/**
- * In-memory implementation of the message store
- * This can actually be saved into files.
- *
- * @param {Object} [options] - store options
- */
-function Store (options) {
-  if (!(this instanceof Store)) {
-    return new Store(options)
-  }
-
-  this.options = options || {}
-
-  // Defaults
-  this.options = xtend(defaultStoreOptions, options)
-
-  this._inflights = new Map()
-}
-
-/**
- * Adds a packet to the store, a packet is
- * anything that has a messageId property.
- *
- */
-Store.prototype.put = function (packet, cb) {
-  this._inflights.set(packet.messageId, packet)
-
-  if (cb) {
-    cb()
-  }
-
-  return this
-}
-
-/**
- * Creates a stream with all the packets in the store
- *
- */
-Store.prototype.createStream = function () {
-  var stream = new Readable(streamsOpts)
-  var destroyed = false
-  var values = []
-  var i = 0
-
-  this._inflights.forEach(function (value, key) {
-    values.push(value)
-  })
-
-  stream._read = function () {
-    if (!destroyed && i < values.length) {
-      this.push(values[i++])
-    } else {
-      this.push(null)
-    }
-  }
-
-  stream.destroy = function () {
-    if (destroyed) {
-      return
-    }
-
-    var self = this
-
-    destroyed = true
-
-    process.nextTick(function () {
-      self.emit('close')
-    })
-  }
-
-  return stream
-}
-
-/**
- * deletes a packet from the store.
- */
-Store.prototype.del = function (packet, cb) {
-  packet = this._inflights.get(packet.messageId)
-  if (packet) {
-    this._inflights.delete(packet.messageId)
-    cb(null, packet)
-  } else if (cb) {
-    cb(new Error('missing packet'))
-  }
-
-  return this
-}
-
-/**
- * get a packet from the store.
- */
-Store.prototype.get = function (packet, cb) {
-  packet = this._inflights.get(packet.messageId)
-  if (packet) {
-    cb(null, packet)
-  } else if (cb) {
-    cb(new Error('missing packet'))
-  }
-
-  return this
-}
-
-/**
- * Close the store
- */
-Store.prototype.close = function (cb) {
-  if (this.options.clean) {
-    this._inflights = null
-  }
-  if (cb) {
-    cb()
-  }
-}
-
-module.exports = Store
-
-}).call(this,require('_process'))
-},{"_process":233,"es6-map":177,"readable-stream":261,"xtend":288}],9:[function(require,module,exports){
-'use strict'
-
-/**
- * Validate a topic to see if it's valid or not.
- * A topic is valid if it follow below rules:
- * - Rule #1: If any part of the topic is not `+` or `#`, then it must not contain `+` and '#'
- * - Rule #2: Part `#` must be located at the end of the mailbox
- *
- * @param {String} topic - A topic
- * @returns {Boolean} If the topic is valid, returns true. Otherwise, returns false.
- */
-function validateTopic (topic) {
-  var parts = topic.split('/')
-
-  for (var i = 0; i < parts.length; i++) {
-    if (parts[i] === '+') {
-      continue
-    }
-
-    if (parts[i] === '#') {
-      // for Rule #2
-      return i === parts.length - 1
-    }
-
-    if (parts[i].indexOf('+') !== -1 || parts[i].indexOf('#') !== -1) {
-      return false
-    }
-  }
-
-  return true
-}
-
-/**
- * Validate an array of topics to see if any of them is valid or not
-  * @param {Array} topics - Array of topics
- * @returns {String} If the topics is valid, returns null. Otherwise, returns the invalid one
- */
-function validateTopics (topics) {
-  if (topics.length === 0) {
-    return 'empty_topic_list'
-  }
-  for (var i = 0; i < topics.length; i++) {
-    if (!validateTopic(topics[i])) {
-      return topics[i]
-    }
-  }
-  return null
-}
-
-module.exports = {
-  validateTopics: validateTopics
-}
-
-},{}],10:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -2291,7 +72,7 @@ var ALIYUN_BROKER_TOPICS = exports.ALIYUN_BROKER_TOPICS = {
   SUBDEVICE_REGISTER_TOPIC: '/sys/%s/%s/thing/sub/register',
   SUBDEVICE_REGISTER_REPLY_TOPIC: '/sys/%s/%s/thing/sub/register_reply'
 };
-},{}],11:[function(require,module,exports){
+},{}],2:[function(require,module,exports){
 'use strict';
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
@@ -2323,7 +104,7 @@ var Device = function (_Thing) {
 }(Thing);
 
 module.exports = Device;
-},{"./thing":16}],12:[function(require,module,exports){
+},{"./thing":7}],3:[function(require,module,exports){
 'use strict';
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -2588,7 +369,7 @@ var Gateway = function (_Thing) {
 }(Thing);
 
 module.exports = Gateway;
-},{"./subdevice":15,"./thing":16,"./utils":17}],13:[function(require,module,exports){
+},{"./subdevice":6,"./thing":7,"./utils":8}],4:[function(require,module,exports){
 'use strict';
 
 var _package = require('../package.json');
@@ -2617,7 +398,7 @@ var iot = {
 };
 
 module.exports = iot;
-},{"../package.json":289,"./device":11,"./gateway":12,"./utils":17,"mqtt":3}],14:[function(require,module,exports){
+},{"../package.json":289,"./device":2,"./gateway":3,"./utils":8,"mqtt":213}],5:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -2942,7 +723,7 @@ exports.default = Model;
 
 
 module.exports = Model;
-},{"../package.json":289,"./const":10,"./utils":17,"util":283}],15:[function(require,module,exports){
+},{"../package.json":289,"./const":1,"./utils":8,"util":283}],6:[function(require,module,exports){
 'use strict';
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
@@ -2973,7 +754,7 @@ var SubDevice = function (_Thing) {
 }(Thing);
 
 module.exports = SubDevice;
-},{"./thing":16}],16:[function(require,module,exports){
+},{"./thing":7}],7:[function(require,module,exports){
 'use strict';
 
 var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; };
@@ -3570,7 +1351,7 @@ var Thing = function (_EventEmitter) {
 }(EventEmitter);
 
 module.exports = Thing;
-},{"../package.json":289,"./model":14,"./utils":17,"events":189,"mqtt":3,"util":283}],17:[function(require,module,exports){
+},{"../package.json":289,"./model":5,"./utils":8,"events":180,"mqtt":213,"util":283}],8:[function(require,module,exports){
 (function (process){
 'use strict';
 
@@ -3794,7 +1575,7 @@ exports.isJsonString = isJsonString;
 exports.getSDKLanguage = getSDKLanguage;
 exports.setSDKLanguage = setSDKLanguage;
 }).call(this,require('_process'))
-},{"_process":233,"axios":32,"crypto":98,"os":221,"qs":242}],18:[function(require,module,exports){
+},{"_process":233,"axios":23,"crypto":89,"os":221,"qs":242}],9:[function(require,module,exports){
 var asn1 = exports;
 
 asn1.bignum = require('bn.js');
@@ -3805,7 +1586,7 @@ asn1.constants = require('./asn1/constants');
 asn1.decoders = require('./asn1/decoders');
 asn1.encoders = require('./asn1/encoders');
 
-},{"./asn1/api":19,"./asn1/base":21,"./asn1/constants":25,"./asn1/decoders":27,"./asn1/encoders":30,"bn.js":59}],19:[function(require,module,exports){
+},{"./asn1/api":10,"./asn1/base":12,"./asn1/constants":16,"./asn1/decoders":18,"./asn1/encoders":21,"bn.js":50}],10:[function(require,module,exports){
 var asn1 = require('../asn1');
 var inherits = require('inherits');
 
@@ -3868,7 +1649,7 @@ Entity.prototype.encode = function encode(data, enc, /* internal */ reporter) {
   return this._getEncoder(enc).encode(data, reporter);
 };
 
-},{"../asn1":18,"inherits":206,"vm":284}],20:[function(require,module,exports){
+},{"../asn1":9,"inherits":197,"vm":284}],11:[function(require,module,exports){
 var inherits = require('inherits');
 var Reporter = require('../base').Reporter;
 var Buffer = require('buffer').Buffer;
@@ -3986,7 +1767,7 @@ EncoderBuffer.prototype.join = function join(out, offset) {
   return out;
 };
 
-},{"../base":21,"buffer":90,"inherits":206}],21:[function(require,module,exports){
+},{"../base":12,"buffer":81,"inherits":197}],12:[function(require,module,exports){
 var base = exports;
 
 base.Reporter = require('./reporter').Reporter;
@@ -3994,7 +1775,7 @@ base.DecoderBuffer = require('./buffer').DecoderBuffer;
 base.EncoderBuffer = require('./buffer').EncoderBuffer;
 base.Node = require('./node');
 
-},{"./buffer":20,"./node":22,"./reporter":23}],22:[function(require,module,exports){
+},{"./buffer":11,"./node":13,"./reporter":14}],13:[function(require,module,exports){
 var Reporter = require('../base').Reporter;
 var EncoderBuffer = require('../base').EncoderBuffer;
 var DecoderBuffer = require('../base').DecoderBuffer;
@@ -4630,7 +2411,7 @@ Node.prototype._isPrintstr = function isPrintstr(str) {
   return /^[A-Za-z0-9 '\(\)\+,\-\.\/:=\?]*$/.test(str);
 };
 
-},{"../base":21,"minimalistic-assert":211}],23:[function(require,module,exports){
+},{"../base":12,"minimalistic-assert":202}],14:[function(require,module,exports){
 var inherits = require('inherits');
 
 function Reporter(options) {
@@ -4753,7 +2534,7 @@ ReporterError.prototype.rethrow = function rethrow(msg) {
   return this;
 };
 
-},{"inherits":206}],24:[function(require,module,exports){
+},{"inherits":197}],15:[function(require,module,exports){
 var constants = require('../constants');
 
 exports.tagClass = {
@@ -4797,7 +2578,7 @@ exports.tag = {
 };
 exports.tagByName = constants._reverse(exports.tag);
 
-},{"../constants":25}],25:[function(require,module,exports){
+},{"../constants":16}],16:[function(require,module,exports){
 var constants = exports;
 
 // Helper
@@ -4818,7 +2599,7 @@ constants._reverse = function reverse(map) {
 
 constants.der = require('./der');
 
-},{"./der":24}],26:[function(require,module,exports){
+},{"./der":15}],17:[function(require,module,exports){
 var inherits = require('inherits');
 
 var asn1 = require('../../asn1');
@@ -5144,13 +2925,13 @@ function derDecodeLen(buf, primitive, fail) {
   return len;
 }
 
-},{"../../asn1":18,"inherits":206}],27:[function(require,module,exports){
+},{"../../asn1":9,"inherits":197}],18:[function(require,module,exports){
 var decoders = exports;
 
 decoders.der = require('./der');
 decoders.pem = require('./pem');
 
-},{"./der":26,"./pem":28}],28:[function(require,module,exports){
+},{"./der":17,"./pem":19}],19:[function(require,module,exports){
 var inherits = require('inherits');
 var Buffer = require('buffer').Buffer;
 
@@ -5201,7 +2982,7 @@ PEMDecoder.prototype.decode = function decode(data, options) {
   return DERDecoder.prototype.decode.call(this, input, options);
 };
 
-},{"./der":26,"buffer":90,"inherits":206}],29:[function(require,module,exports){
+},{"./der":17,"buffer":81,"inherits":197}],20:[function(require,module,exports){
 var inherits = require('inherits');
 var Buffer = require('buffer').Buffer;
 
@@ -5498,13 +3279,13 @@ function encodeTag(tag, primitive, cls, reporter) {
   return res;
 }
 
-},{"../../asn1":18,"buffer":90,"inherits":206}],30:[function(require,module,exports){
+},{"../../asn1":9,"buffer":81,"inherits":197}],21:[function(require,module,exports){
 var encoders = exports;
 
 encoders.der = require('./der');
 encoders.pem = require('./pem');
 
-},{"./der":29,"./pem":31}],31:[function(require,module,exports){
+},{"./der":20,"./pem":22}],22:[function(require,module,exports){
 var inherits = require('inherits');
 
 var DEREncoder = require('./der');
@@ -5527,9 +3308,9 @@ PEMEncoder.prototype.encode = function encode(data, options) {
   return out.join('\n');
 };
 
-},{"./der":29,"inherits":206}],32:[function(require,module,exports){
+},{"./der":20,"inherits":197}],23:[function(require,module,exports){
 module.exports = require('./lib/axios');
-},{"./lib/axios":34}],33:[function(require,module,exports){
+},{"./lib/axios":25}],24:[function(require,module,exports){
 (function (process){
 'use strict';
 
@@ -5713,7 +3494,7 @@ module.exports = function xhrAdapter(config) {
 };
 
 }).call(this,require('_process'))
-},{"../core/createError":40,"./../core/settle":43,"./../helpers/btoa":47,"./../helpers/buildURL":48,"./../helpers/cookies":50,"./../helpers/isURLSameOrigin":52,"./../helpers/parseHeaders":54,"./../utils":56,"_process":233}],34:[function(require,module,exports){
+},{"../core/createError":31,"./../core/settle":34,"./../helpers/btoa":38,"./../helpers/buildURL":39,"./../helpers/cookies":41,"./../helpers/isURLSameOrigin":43,"./../helpers/parseHeaders":45,"./../utils":47,"_process":233}],25:[function(require,module,exports){
 'use strict';
 
 var utils = require('./utils');
@@ -5767,7 +3548,7 @@ module.exports = axios;
 // Allow use of default import syntax in TypeScript
 module.exports.default = axios;
 
-},{"./cancel/Cancel":35,"./cancel/CancelToken":36,"./cancel/isCancel":37,"./core/Axios":38,"./defaults":45,"./helpers/bind":46,"./helpers/spread":55,"./utils":56}],35:[function(require,module,exports){
+},{"./cancel/Cancel":26,"./cancel/CancelToken":27,"./cancel/isCancel":28,"./core/Axios":29,"./defaults":36,"./helpers/bind":37,"./helpers/spread":46,"./utils":47}],26:[function(require,module,exports){
 'use strict';
 
 /**
@@ -5788,7 +3569,7 @@ Cancel.prototype.__CANCEL__ = true;
 
 module.exports = Cancel;
 
-},{}],36:[function(require,module,exports){
+},{}],27:[function(require,module,exports){
 'use strict';
 
 var Cancel = require('./Cancel');
@@ -5847,14 +3628,14 @@ CancelToken.source = function source() {
 
 module.exports = CancelToken;
 
-},{"./Cancel":35}],37:[function(require,module,exports){
+},{"./Cancel":26}],28:[function(require,module,exports){
 'use strict';
 
 module.exports = function isCancel(value) {
   return !!(value && value.__CANCEL__);
 };
 
-},{}],38:[function(require,module,exports){
+},{}],29:[function(require,module,exports){
 'use strict';
 
 var defaults = require('./../defaults');
@@ -5935,7 +3716,7 @@ utils.forEach(['post', 'put', 'patch'], function forEachMethodWithData(method) {
 
 module.exports = Axios;
 
-},{"./../defaults":45,"./../utils":56,"./InterceptorManager":39,"./dispatchRequest":41}],39:[function(require,module,exports){
+},{"./../defaults":36,"./../utils":47,"./InterceptorManager":30,"./dispatchRequest":32}],30:[function(require,module,exports){
 'use strict';
 
 var utils = require('./../utils');
@@ -5989,7 +3770,7 @@ InterceptorManager.prototype.forEach = function forEach(fn) {
 
 module.exports = InterceptorManager;
 
-},{"./../utils":56}],40:[function(require,module,exports){
+},{"./../utils":47}],31:[function(require,module,exports){
 'use strict';
 
 var enhanceError = require('./enhanceError');
@@ -6009,7 +3790,7 @@ module.exports = function createError(message, config, code, request, response) 
   return enhanceError(error, config, code, request, response);
 };
 
-},{"./enhanceError":42}],41:[function(require,module,exports){
+},{"./enhanceError":33}],32:[function(require,module,exports){
 'use strict';
 
 var utils = require('./../utils');
@@ -6097,7 +3878,7 @@ module.exports = function dispatchRequest(config) {
   });
 };
 
-},{"../cancel/isCancel":37,"../defaults":45,"./../helpers/combineURLs":49,"./../helpers/isAbsoluteURL":51,"./../utils":56,"./transformData":44}],42:[function(require,module,exports){
+},{"../cancel/isCancel":28,"../defaults":36,"./../helpers/combineURLs":40,"./../helpers/isAbsoluteURL":42,"./../utils":47,"./transformData":35}],33:[function(require,module,exports){
 'use strict';
 
 /**
@@ -6120,7 +3901,7 @@ module.exports = function enhanceError(error, config, code, request, response) {
   return error;
 };
 
-},{}],43:[function(require,module,exports){
+},{}],34:[function(require,module,exports){
 'use strict';
 
 var createError = require('./createError');
@@ -6148,7 +3929,7 @@ module.exports = function settle(resolve, reject, response) {
   }
 };
 
-},{"./createError":40}],44:[function(require,module,exports){
+},{"./createError":31}],35:[function(require,module,exports){
 'use strict';
 
 var utils = require('./../utils');
@@ -6170,7 +3951,7 @@ module.exports = function transformData(data, headers, fns) {
   return data;
 };
 
-},{"./../utils":56}],45:[function(require,module,exports){
+},{"./../utils":47}],36:[function(require,module,exports){
 (function (process){
 'use strict';
 
@@ -6270,7 +4051,7 @@ utils.forEach(['post', 'put', 'patch'], function forEachMethodWithData(method) {
 module.exports = defaults;
 
 }).call(this,require('_process'))
-},{"./adapters/http":33,"./adapters/xhr":33,"./helpers/normalizeHeaderName":53,"./utils":56,"_process":233}],46:[function(require,module,exports){
+},{"./adapters/http":24,"./adapters/xhr":24,"./helpers/normalizeHeaderName":44,"./utils":47,"_process":233}],37:[function(require,module,exports){
 'use strict';
 
 module.exports = function bind(fn, thisArg) {
@@ -6283,7 +4064,7 @@ module.exports = function bind(fn, thisArg) {
   };
 };
 
-},{}],47:[function(require,module,exports){
+},{}],38:[function(require,module,exports){
 'use strict';
 
 // btoa polyfill for IE<10 courtesy https://github.com/davidchambers/Base64.js
@@ -6321,7 +4102,7 @@ function btoa(input) {
 
 module.exports = btoa;
 
-},{}],48:[function(require,module,exports){
+},{}],39:[function(require,module,exports){
 'use strict';
 
 var utils = require('./../utils');
@@ -6389,7 +4170,7 @@ module.exports = function buildURL(url, params, paramsSerializer) {
   return url;
 };
 
-},{"./../utils":56}],49:[function(require,module,exports){
+},{"./../utils":47}],40:[function(require,module,exports){
 'use strict';
 
 /**
@@ -6405,7 +4186,7 @@ module.exports = function combineURLs(baseURL, relativeURL) {
     : baseURL;
 };
 
-},{}],50:[function(require,module,exports){
+},{}],41:[function(require,module,exports){
 'use strict';
 
 var utils = require('./../utils');
@@ -6460,7 +4241,7 @@ module.exports = (
   })()
 );
 
-},{"./../utils":56}],51:[function(require,module,exports){
+},{"./../utils":47}],42:[function(require,module,exports){
 'use strict';
 
 /**
@@ -6476,7 +4257,7 @@ module.exports = function isAbsoluteURL(url) {
   return /^([a-z][a-z\d\+\-\.]*:)?\/\//i.test(url);
 };
 
-},{}],52:[function(require,module,exports){
+},{}],43:[function(require,module,exports){
 'use strict';
 
 var utils = require('./../utils');
@@ -6546,7 +4327,7 @@ module.exports = (
   })()
 );
 
-},{"./../utils":56}],53:[function(require,module,exports){
+},{"./../utils":47}],44:[function(require,module,exports){
 'use strict';
 
 var utils = require('../utils');
@@ -6560,7 +4341,7 @@ module.exports = function normalizeHeaderName(headers, normalizedName) {
   });
 };
 
-},{"../utils":56}],54:[function(require,module,exports){
+},{"../utils":47}],45:[function(require,module,exports){
 'use strict';
 
 var utils = require('./../utils');
@@ -6615,7 +4396,7 @@ module.exports = function parseHeaders(headers) {
   return parsed;
 };
 
-},{"./../utils":56}],55:[function(require,module,exports){
+},{"./../utils":47}],46:[function(require,module,exports){
 'use strict';
 
 /**
@@ -6644,7 +4425,7 @@ module.exports = function spread(callback) {
   };
 };
 
-},{}],56:[function(require,module,exports){
+},{}],47:[function(require,module,exports){
 'use strict';
 
 var bind = require('./helpers/bind');
@@ -6949,7 +4730,7 @@ module.exports = {
   trim: trim
 };
 
-},{"./helpers/bind":46,"is-buffer":207}],57:[function(require,module,exports){
+},{"./helpers/bind":37,"is-buffer":198}],48:[function(require,module,exports){
 'use strict'
 
 exports.byteLength = byteLength
@@ -7102,7 +4883,7 @@ function fromByteArray (uint8) {
   return parts.join('')
 }
 
-},{}],58:[function(require,module,exports){
+},{}],49:[function(require,module,exports){
 var DuplexStream = require('readable-stream/duplex')
   , util         = require('util')
   , Buffer       = require('safe-buffer').Buffer
@@ -7385,7 +5166,7 @@ BufferList.prototype.destroy = function destroy () {
 
 module.exports = BufferList
 
-},{"readable-stream/duplex":251,"safe-buffer":266,"util":283}],59:[function(require,module,exports){
+},{"readable-stream/duplex":251,"safe-buffer":266,"util":283}],50:[function(require,module,exports){
 (function (module, exports) {
   'use strict';
 
@@ -10814,7 +8595,7 @@ module.exports = BufferList
   };
 })(typeof module === 'undefined' || module, this);
 
-},{"buffer":61}],60:[function(require,module,exports){
+},{"buffer":52}],51:[function(require,module,exports){
 var r;
 
 module.exports = function rand(len) {
@@ -10881,9 +8662,9 @@ if (typeof self === 'object') {
   }
 }
 
-},{"crypto":61}],61:[function(require,module,exports){
+},{"crypto":52}],52:[function(require,module,exports){
 
-},{}],62:[function(require,module,exports){
+},{}],53:[function(require,module,exports){
 // based on the aes implimentation in triple sec
 // https://github.com/keybase/triplesec
 // which is in turn based on the one from crypto-js
@@ -11113,7 +8894,7 @@ AES.prototype.scrub = function () {
 
 module.exports.AES = AES
 
-},{"safe-buffer":266}],63:[function(require,module,exports){
+},{"safe-buffer":266}],54:[function(require,module,exports){
 var aes = require('./aes')
 var Buffer = require('safe-buffer').Buffer
 var Transform = require('cipher-base')
@@ -11232,7 +9013,7 @@ StreamCipher.prototype.setAAD = function setAAD (buf) {
 
 module.exports = StreamCipher
 
-},{"./aes":62,"./ghash":67,"./incr32":68,"buffer-xor":89,"cipher-base":91,"inherits":206,"safe-buffer":266}],64:[function(require,module,exports){
+},{"./aes":53,"./ghash":58,"./incr32":59,"buffer-xor":80,"cipher-base":82,"inherits":197,"safe-buffer":266}],55:[function(require,module,exports){
 var ciphers = require('./encrypter')
 var deciphers = require('./decrypter')
 var modes = require('./modes/list.json')
@@ -11247,7 +9028,7 @@ exports.createDecipher = exports.Decipher = deciphers.createDecipher
 exports.createDecipheriv = exports.Decipheriv = deciphers.createDecipheriv
 exports.listCiphers = exports.getCiphers = getCiphers
 
-},{"./decrypter":65,"./encrypter":66,"./modes/list.json":76}],65:[function(require,module,exports){
+},{"./decrypter":56,"./encrypter":57,"./modes/list.json":67}],56:[function(require,module,exports){
 var AuthCipher = require('./authCipher')
 var Buffer = require('safe-buffer').Buffer
 var MODES = require('./modes')
@@ -11373,7 +9154,7 @@ function createDecipher (suite, password) {
 exports.createDecipher = createDecipher
 exports.createDecipheriv = createDecipheriv
 
-},{"./aes":62,"./authCipher":63,"./modes":75,"./streamCipher":78,"cipher-base":91,"evp_bytestokey":190,"inherits":206,"safe-buffer":266}],66:[function(require,module,exports){
+},{"./aes":53,"./authCipher":54,"./modes":66,"./streamCipher":69,"cipher-base":82,"evp_bytestokey":181,"inherits":197,"safe-buffer":266}],57:[function(require,module,exports){
 var MODES = require('./modes')
 var AuthCipher = require('./authCipher')
 var Buffer = require('safe-buffer').Buffer
@@ -11489,7 +9270,7 @@ function createCipher (suite, password) {
 exports.createCipheriv = createCipheriv
 exports.createCipher = createCipher
 
-},{"./aes":62,"./authCipher":63,"./modes":75,"./streamCipher":78,"cipher-base":91,"evp_bytestokey":190,"inherits":206,"safe-buffer":266}],67:[function(require,module,exports){
+},{"./aes":53,"./authCipher":54,"./modes":66,"./streamCipher":69,"cipher-base":82,"evp_bytestokey":181,"inherits":197,"safe-buffer":266}],58:[function(require,module,exports){
 var Buffer = require('safe-buffer').Buffer
 var ZEROES = Buffer.alloc(16, 0)
 
@@ -11580,7 +9361,7 @@ GHASH.prototype.final = function (abl, bl) {
 
 module.exports = GHASH
 
-},{"safe-buffer":266}],68:[function(require,module,exports){
+},{"safe-buffer":266}],59:[function(require,module,exports){
 function incr32 (iv) {
   var len = iv.length
   var item
@@ -11597,7 +9378,7 @@ function incr32 (iv) {
 }
 module.exports = incr32
 
-},{}],69:[function(require,module,exports){
+},{}],60:[function(require,module,exports){
 var xor = require('buffer-xor')
 
 exports.encrypt = function (self, block) {
@@ -11616,7 +9397,7 @@ exports.decrypt = function (self, block) {
   return xor(out, pad)
 }
 
-},{"buffer-xor":89}],70:[function(require,module,exports){
+},{"buffer-xor":80}],61:[function(require,module,exports){
 var Buffer = require('safe-buffer').Buffer
 var xor = require('buffer-xor')
 
@@ -11651,7 +9432,7 @@ exports.encrypt = function (self, data, decrypt) {
   return out
 }
 
-},{"buffer-xor":89,"safe-buffer":266}],71:[function(require,module,exports){
+},{"buffer-xor":80,"safe-buffer":266}],62:[function(require,module,exports){
 var Buffer = require('safe-buffer').Buffer
 
 function encryptByte (self, byteParam, decrypt) {
@@ -11695,7 +9476,7 @@ exports.encrypt = function (self, chunk, decrypt) {
   return out
 }
 
-},{"safe-buffer":266}],72:[function(require,module,exports){
+},{"safe-buffer":266}],63:[function(require,module,exports){
 var Buffer = require('safe-buffer').Buffer
 
 function encryptByte (self, byteParam, decrypt) {
@@ -11722,7 +9503,7 @@ exports.encrypt = function (self, chunk, decrypt) {
   return out
 }
 
-},{"safe-buffer":266}],73:[function(require,module,exports){
+},{"safe-buffer":266}],64:[function(require,module,exports){
 var xor = require('buffer-xor')
 var Buffer = require('safe-buffer').Buffer
 var incr32 = require('../incr32')
@@ -11754,7 +9535,7 @@ exports.encrypt = function (self, chunk) {
   return xor(chunk, pad)
 }
 
-},{"../incr32":68,"buffer-xor":89,"safe-buffer":266}],74:[function(require,module,exports){
+},{"../incr32":59,"buffer-xor":80,"safe-buffer":266}],65:[function(require,module,exports){
 exports.encrypt = function (self, block) {
   return self._cipher.encryptBlock(block)
 }
@@ -11763,7 +9544,7 @@ exports.decrypt = function (self, block) {
   return self._cipher.decryptBlock(block)
 }
 
-},{}],75:[function(require,module,exports){
+},{}],66:[function(require,module,exports){
 var modeModules = {
   ECB: require('./ecb'),
   CBC: require('./cbc'),
@@ -11783,7 +9564,7 @@ for (var key in modes) {
 
 module.exports = modes
 
-},{"./cbc":69,"./cfb":70,"./cfb1":71,"./cfb8":72,"./ctr":73,"./ecb":74,"./list.json":76,"./ofb":77}],76:[function(require,module,exports){
+},{"./cbc":60,"./cfb":61,"./cfb1":62,"./cfb8":63,"./ctr":64,"./ecb":65,"./list.json":67,"./ofb":68}],67:[function(require,module,exports){
 module.exports={
   "aes-128-ecb": {
     "cipher": "AES",
@@ -11976,7 +9757,7 @@ module.exports={
   }
 }
 
-},{}],77:[function(require,module,exports){
+},{}],68:[function(require,module,exports){
 (function (Buffer){
 var xor = require('buffer-xor')
 
@@ -11996,7 +9777,7 @@ exports.encrypt = function (self, chunk) {
 }
 
 }).call(this,require("buffer").Buffer)
-},{"buffer":90,"buffer-xor":89}],78:[function(require,module,exports){
+},{"buffer":81,"buffer-xor":80}],69:[function(require,module,exports){
 var aes = require('./aes')
 var Buffer = require('safe-buffer').Buffer
 var Transform = require('cipher-base')
@@ -12025,7 +9806,7 @@ StreamCipher.prototype._final = function () {
 
 module.exports = StreamCipher
 
-},{"./aes":62,"cipher-base":91,"inherits":206,"safe-buffer":266}],79:[function(require,module,exports){
+},{"./aes":53,"cipher-base":82,"inherits":197,"safe-buffer":266}],70:[function(require,module,exports){
 var DES = require('browserify-des')
 var aes = require('browserify-aes/browser')
 var aesModes = require('browserify-aes/modes')
@@ -12094,7 +9875,7 @@ exports.createDecipher = exports.Decipher = createDecipher
 exports.createDecipheriv = exports.Decipheriv = createDecipheriv
 exports.listCiphers = exports.getCiphers = getCiphers
 
-},{"browserify-aes/browser":64,"browserify-aes/modes":75,"browserify-des":80,"browserify-des/modes":81,"evp_bytestokey":190}],80:[function(require,module,exports){
+},{"browserify-aes/browser":55,"browserify-aes/modes":66,"browserify-des":71,"browserify-des/modes":72,"evp_bytestokey":181}],71:[function(require,module,exports){
 var CipherBase = require('cipher-base')
 var des = require('des.js')
 var inherits = require('inherits')
@@ -12146,7 +9927,7 @@ DES.prototype._final = function () {
   return Buffer.from(this._des.final())
 }
 
-},{"cipher-base":91,"des.js":101,"inherits":206,"safe-buffer":266}],81:[function(require,module,exports){
+},{"cipher-base":82,"des.js":92,"inherits":197,"safe-buffer":266}],72:[function(require,module,exports){
 exports['des-ecb'] = {
   key: 8,
   iv: 0
@@ -12172,7 +9953,7 @@ exports['des-ede'] = {
   iv: 0
 }
 
-},{}],82:[function(require,module,exports){
+},{}],73:[function(require,module,exports){
 (function (Buffer){
 var bn = require('bn.js');
 var randomBytes = require('randombytes');
@@ -12216,10 +9997,10 @@ function getr(priv) {
 }
 
 }).call(this,require("buffer").Buffer)
-},{"bn.js":59,"buffer":90,"randombytes":249}],83:[function(require,module,exports){
+},{"bn.js":50,"buffer":81,"randombytes":249}],74:[function(require,module,exports){
 module.exports = require('./browser/algorithms.json')
 
-},{"./browser/algorithms.json":84}],84:[function(require,module,exports){
+},{"./browser/algorithms.json":75}],75:[function(require,module,exports){
 module.exports={
   "sha224WithRSAEncryption": {
     "sign": "rsa",
@@ -12373,7 +10154,7 @@ module.exports={
   }
 }
 
-},{}],85:[function(require,module,exports){
+},{}],76:[function(require,module,exports){
 module.exports={
   "1.3.132.0.10": "secp256k1",
   "1.3.132.0.33": "p224",
@@ -12383,7 +10164,7 @@ module.exports={
   "1.3.132.0.35": "p521"
 }
 
-},{}],86:[function(require,module,exports){
+},{}],77:[function(require,module,exports){
 (function (Buffer){
 var createHash = require('create-hash')
 var stream = require('stream')
@@ -12478,7 +10259,7 @@ module.exports = {
 }
 
 }).call(this,require("buffer").Buffer)
-},{"./algorithms.json":84,"./sign":87,"./verify":88,"buffer":90,"create-hash":94,"inherits":206,"stream":275}],87:[function(require,module,exports){
+},{"./algorithms.json":75,"./sign":78,"./verify":79,"buffer":81,"create-hash":85,"inherits":197,"stream":275}],78:[function(require,module,exports){
 (function (Buffer){
 // much of this based on https://github.com/indutny/self-signed/blob/gh-pages/lib/rsa.js
 var createHmac = require('create-hmac')
@@ -12627,7 +10408,7 @@ module.exports.getKey = getKey
 module.exports.makeKey = makeKey
 
 }).call(this,require("buffer").Buffer)
-},{"./curves.json":85,"bn.js":59,"browserify-rsa":82,"buffer":90,"create-hmac":96,"elliptic":112,"parse-asn1":226}],88:[function(require,module,exports){
+},{"./curves.json":76,"bn.js":50,"browserify-rsa":73,"buffer":81,"create-hmac":87,"elliptic":103,"parse-asn1":226}],79:[function(require,module,exports){
 (function (Buffer){
 // much of this based on https://github.com/indutny/self-signed/blob/gh-pages/lib/rsa.js
 var BN = require('bn.js')
@@ -12714,7 +10495,7 @@ function checkValue (b, q) {
 module.exports = verify
 
 }).call(this,require("buffer").Buffer)
-},{"./curves.json":85,"bn.js":59,"buffer":90,"elliptic":112,"parse-asn1":226}],89:[function(require,module,exports){
+},{"./curves.json":76,"bn.js":50,"buffer":81,"elliptic":103,"parse-asn1":226}],80:[function(require,module,exports){
 (function (Buffer){
 module.exports = function xor (a, b) {
   var length = Math.min(a.length, b.length)
@@ -12728,7 +10509,7 @@ module.exports = function xor (a, b) {
 }
 
 }).call(this,require("buffer").Buffer)
-},{"buffer":90}],90:[function(require,module,exports){
+},{"buffer":81}],81:[function(require,module,exports){
 (function (Buffer){
 /*!
  * The buffer module from node.js, for the browser.
@@ -14509,7 +12290,7 @@ function numberIsNaN (obj) {
 }
 
 }).call(this,require("buffer").Buffer)
-},{"base64-js":57,"buffer":90,"ieee754":205}],91:[function(require,module,exports){
+},{"base64-js":48,"buffer":81,"ieee754":196}],82:[function(require,module,exports){
 var Buffer = require('safe-buffer').Buffer
 var Transform = require('stream').Transform
 var StringDecoder = require('string_decoder').StringDecoder
@@ -14610,7 +12391,7 @@ CipherBase.prototype._toString = function (value, enc, fin) {
 
 module.exports = CipherBase
 
-},{"inherits":206,"safe-buffer":266,"stream":275,"string_decoder":277}],92:[function(require,module,exports){
+},{"inherits":197,"safe-buffer":266,"stream":275,"string_decoder":277}],83:[function(require,module,exports){
 (function (Buffer){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -14721,7 +12502,7 @@ function objectToString(o) {
 }
 
 }).call(this,{"isBuffer":require("../../is-buffer/index.js")})
-},{"../../is-buffer/index.js":207}],93:[function(require,module,exports){
+},{"../../is-buffer/index.js":198}],84:[function(require,module,exports){
 (function (Buffer){
 var elliptic = require('elliptic')
 var BN = require('bn.js')
@@ -14849,7 +12630,7 @@ function formatReturnValue (bn, enc, len) {
 }
 
 }).call(this,require("buffer").Buffer)
-},{"bn.js":59,"buffer":90,"elliptic":112}],94:[function(require,module,exports){
+},{"bn.js":50,"buffer":81,"elliptic":103}],85:[function(require,module,exports){
 'use strict'
 var inherits = require('inherits')
 var MD5 = require('md5.js')
@@ -14881,14 +12662,14 @@ module.exports = function createHash (alg) {
   return new Hash(sha(alg))
 }
 
-},{"cipher-base":91,"inherits":206,"md5.js":209,"ripemd160":265,"sha.js":268}],95:[function(require,module,exports){
+},{"cipher-base":82,"inherits":197,"md5.js":200,"ripemd160":265,"sha.js":268}],86:[function(require,module,exports){
 var MD5 = require('md5.js')
 
 module.exports = function (buffer) {
   return new MD5().update(buffer).digest()
 }
 
-},{"md5.js":209}],96:[function(require,module,exports){
+},{"md5.js":200}],87:[function(require,module,exports){
 'use strict'
 var inherits = require('inherits')
 var Legacy = require('./legacy')
@@ -14952,7 +12733,7 @@ module.exports = function createHmac (alg, key) {
   return new Hmac(alg, key)
 }
 
-},{"./legacy":97,"cipher-base":91,"create-hash/md5":95,"inherits":206,"ripemd160":265,"safe-buffer":266,"sha.js":268}],97:[function(require,module,exports){
+},{"./legacy":88,"cipher-base":82,"create-hash/md5":86,"inherits":197,"ripemd160":265,"safe-buffer":266,"sha.js":268}],88:[function(require,module,exports){
 'use strict'
 var inherits = require('inherits')
 var Buffer = require('safe-buffer').Buffer
@@ -15000,7 +12781,7 @@ Hmac.prototype._final = function () {
 }
 module.exports = Hmac
 
-},{"cipher-base":91,"inherits":206,"safe-buffer":266}],98:[function(require,module,exports){
+},{"cipher-base":82,"inherits":197,"safe-buffer":266}],89:[function(require,module,exports){
 'use strict'
 
 exports.randomBytes = exports.rng = exports.pseudoRandomBytes = exports.prng = require('randombytes')
@@ -15099,7 +12880,7 @@ exports.constants = {
   'POINT_CONVERSION_HYBRID': 6
 }
 
-},{"browserify-cipher":79,"browserify-sign":86,"browserify-sign/algos":83,"create-ecdh":93,"create-hash":94,"create-hmac":96,"diffie-hellman":107,"pbkdf2":227,"public-encrypt":234,"randombytes":249,"randomfill":250}],99:[function(require,module,exports){
+},{"browserify-cipher":70,"browserify-sign":77,"browserify-sign/algos":74,"create-ecdh":84,"create-hash":85,"create-hmac":87,"diffie-hellman":98,"pbkdf2":227,"public-encrypt":234,"randombytes":249,"randomfill":250}],90:[function(require,module,exports){
 'use strict';
 
 var copy             = require('es5-ext/object/copy')
@@ -15133,7 +12914,7 @@ module.exports = function (props/*, options*/) {
 	return map(props, function (desc, name) { return define(name, desc, options); });
 };
 
-},{"es5-ext/object/copy":149,"es5-ext/object/map":158,"es5-ext/object/normalize-options":159,"es5-ext/object/valid-callable":164,"es5-ext/object/valid-value":165}],100:[function(require,module,exports){
+},{"es5-ext/object/copy":140,"es5-ext/object/map":149,"es5-ext/object/normalize-options":150,"es5-ext/object/valid-callable":155,"es5-ext/object/valid-value":156}],91:[function(require,module,exports){
 'use strict';
 
 var assign        = require('es5-ext/object/assign')
@@ -15198,7 +12979,7 @@ d.gs = function (dscr, get, set/*, options*/) {
 	return !options ? desc : assign(normalizeOpts(options), desc);
 };
 
-},{"es5-ext/object/assign":146,"es5-ext/object/is-callable":152,"es5-ext/object/normalize-options":159,"es5-ext/string/#/contains":166}],101:[function(require,module,exports){
+},{"es5-ext/object/assign":137,"es5-ext/object/is-callable":143,"es5-ext/object/normalize-options":150,"es5-ext/string/#/contains":157}],92:[function(require,module,exports){
 'use strict';
 
 exports.utils = require('./des/utils');
@@ -15207,7 +12988,7 @@ exports.DES = require('./des/des');
 exports.CBC = require('./des/cbc');
 exports.EDE = require('./des/ede');
 
-},{"./des/cbc":102,"./des/cipher":103,"./des/des":104,"./des/ede":105,"./des/utils":106}],102:[function(require,module,exports){
+},{"./des/cbc":93,"./des/cipher":94,"./des/des":95,"./des/ede":96,"./des/utils":97}],93:[function(require,module,exports){
 'use strict';
 
 var assert = require('minimalistic-assert');
@@ -15274,7 +13055,7 @@ proto._update = function _update(inp, inOff, out, outOff) {
   }
 };
 
-},{"inherits":206,"minimalistic-assert":211}],103:[function(require,module,exports){
+},{"inherits":197,"minimalistic-assert":202}],94:[function(require,module,exports){
 'use strict';
 
 var assert = require('minimalistic-assert');
@@ -15417,7 +13198,7 @@ Cipher.prototype._finalDecrypt = function _finalDecrypt() {
   return this._unpad(out);
 };
 
-},{"minimalistic-assert":211}],104:[function(require,module,exports){
+},{"minimalistic-assert":202}],95:[function(require,module,exports){
 'use strict';
 
 var assert = require('minimalistic-assert');
@@ -15562,7 +13343,7 @@ DES.prototype._decrypt = function _decrypt(state, lStart, rStart, out, off) {
   utils.rip(l, r, out, off);
 };
 
-},{"../des":101,"inherits":206,"minimalistic-assert":211}],105:[function(require,module,exports){
+},{"../des":92,"inherits":197,"minimalistic-assert":202}],96:[function(require,module,exports){
 'use strict';
 
 var assert = require('minimalistic-assert');
@@ -15619,7 +13400,7 @@ EDE.prototype._update = function _update(inp, inOff, out, outOff) {
 EDE.prototype._pad = DES.prototype._pad;
 EDE.prototype._unpad = DES.prototype._unpad;
 
-},{"../des":101,"inherits":206,"minimalistic-assert":211}],106:[function(require,module,exports){
+},{"../des":92,"inherits":197,"minimalistic-assert":202}],97:[function(require,module,exports){
 'use strict';
 
 exports.readUInt32BE = function readUInt32BE(bytes, off) {
@@ -15877,7 +13658,7 @@ exports.padSplit = function padSplit(num, size, group) {
   return out.join(' ');
 };
 
-},{}],107:[function(require,module,exports){
+},{}],98:[function(require,module,exports){
 (function (Buffer){
 var generatePrime = require('./lib/generatePrime')
 var primes = require('./lib/primes.json')
@@ -15923,7 +13704,7 @@ exports.DiffieHellmanGroup = exports.createDiffieHellmanGroup = exports.getDiffi
 exports.createDiffieHellman = exports.DiffieHellman = createDiffieHellman
 
 }).call(this,require("buffer").Buffer)
-},{"./lib/dh":108,"./lib/generatePrime":109,"./lib/primes.json":110,"buffer":90}],108:[function(require,module,exports){
+},{"./lib/dh":99,"./lib/generatePrime":100,"./lib/primes.json":101,"buffer":81}],99:[function(require,module,exports){
 (function (Buffer){
 var BN = require('bn.js');
 var MillerRabin = require('miller-rabin');
@@ -16091,7 +13872,7 @@ function formatReturnValue(bn, enc) {
 }
 
 }).call(this,require("buffer").Buffer)
-},{"./generatePrime":109,"bn.js":59,"buffer":90,"miller-rabin":210,"randombytes":249}],109:[function(require,module,exports){
+},{"./generatePrime":100,"bn.js":50,"buffer":81,"miller-rabin":201,"randombytes":249}],100:[function(require,module,exports){
 var randomBytes = require('randombytes');
 module.exports = findPrime;
 findPrime.simpleSieve = simpleSieve;
@@ -16198,7 +13979,7 @@ function findPrime(bits, gen) {
 
 }
 
-},{"bn.js":59,"miller-rabin":210,"randombytes":249}],110:[function(require,module,exports){
+},{"bn.js":50,"miller-rabin":201,"randombytes":249}],101:[function(require,module,exports){
 module.exports={
     "modp1": {
         "gen": "02",
@@ -16233,7 +14014,7 @@ module.exports={
         "prime": "ffffffffffffffffc90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea63b139b22514a08798e3404ddef9519b3cd3a431b302b0a6df25f14374fe1356d6d51c245e485b576625e7ec6f44c42e9a637ed6b0bff5cb6f406b7edee386bfb5a899fa5ae9f24117c4b1fe649286651ece45b3dc2007cb8a163bf0598da48361c55d39a69163fa8fd24cf5f83655d23dca3ad961c62f356208552bb9ed529077096966d670c354e4abc9804f1746c08ca18217c32905e462e36ce3be39e772c180e86039b2783a2ec07a28fb5c55df06f4c52c9de2bcbf6955817183995497cea956ae515d2261898fa051015728e5a8aaac42dad33170d04507a33a85521abdf1cba64ecfb850458dbef0a8aea71575d060c7db3970f85a6e1e4c7abf5ae8cdb0933d71e8c94e04a25619dcee3d2261ad2ee6bf12ffa06d98a0864d87602733ec86a64521f2b18177b200cbbe117577a615d6c770988c0bad946e208e24fa074e5ab3143db5bfce0fd108e4b82d120a92108011a723c12a787e6d788719a10bdba5b2699c327186af4e23c1a946834b6150bda2583e9ca2ad44ce8dbbbc2db04de8ef92e8efc141fbecaa6287c59474e6bc05d99b2964fa090c3a2233ba186515be7ed1f612970cee2d7afb81bdd762170481cd0069127d5b05aa993b4ea988d8fddc186ffb7dc90a6c08f4df435c93402849236c3fab4d27c7026c1d4dcb2602646dec9751e763dba37bdf8ff9406ad9e530ee5db382f413001aeb06a53ed9027d831179727b0865a8918da3edbebcf9b14ed44ce6cbaced4bb1bdb7f1447e6cc254b332051512bd7af426fb8f401378cd2bf5983ca01c64b92ecf032ea15d1721d03f482d7ce6e74fef6d55e702f46980c82b5a84031900b1c9e59e7c97fbec7e8f323a97a7e36cc88be0f1d45b7ff585ac54bd407b22b4154aacc8f6d7ebf48e1d814cc5ed20f8037e0a79715eef29be32806a1d58bb7c5da76f550aa3d8a1fbff0eb19ccb1a313d55cda56c9ec2ef29632387fe8d76e3c0468043e8f663f4860ee12bf2d5b0b7474d6e694f91e6dbe115974a3926f12fee5e438777cb6a932df8cd8bec4d073b931ba3bc832b68d9dd300741fa7bf8afc47ed2576f6936ba424663aab639c5ae4f5683423b4742bf1c978238f16cbe39d652de3fdb8befc848ad922222e04a4037c0713eb57a81a23f0c73473fc646cea306b4bcbc8862f8385ddfa9d4b7fa2c087e879683303ed5bdd3a062b3cf5b3a278a66d2a13f83f44f82ddf310ee074ab6a364597e899a0255dc164f31cc50846851df9ab48195ded7ea1b1d510bd7ee74d73faf36bc31ecfa268359046f4eb879f924009438b481c6cd7889a002ed5ee382bc9190da6fc026e479558e4475677e9aa9e3050e2765694dfc81f56e880b96e7160c980dd98edd3dfffffffffffffffff"
     }
 }
-},{}],111:[function(require,module,exports){
+},{}],102:[function(require,module,exports){
 (function (process,Buffer){
 var stream = require('readable-stream')
 var eos = require('end-of-stream')
@@ -16471,7 +14252,7 @@ Duplexify.prototype.end = function(data, enc, cb) {
 module.exports = Duplexify
 
 }).call(this,require('_process'),require("buffer").Buffer)
-},{"_process":233,"buffer":90,"end-of-stream":128,"inherits":206,"readable-stream":261,"stream-shift":276}],112:[function(require,module,exports){
+},{"_process":233,"buffer":81,"end-of-stream":119,"inherits":197,"readable-stream":261,"stream-shift":276}],103:[function(require,module,exports){
 'use strict';
 
 var elliptic = exports;
@@ -16486,7 +14267,7 @@ elliptic.curves = require('./elliptic/curves');
 elliptic.ec = require('./elliptic/ec');
 elliptic.eddsa = require('./elliptic/eddsa');
 
-},{"../package.json":127,"./elliptic/curve":115,"./elliptic/curves":118,"./elliptic/ec":119,"./elliptic/eddsa":122,"./elliptic/utils":126,"brorand":60}],113:[function(require,module,exports){
+},{"../package.json":118,"./elliptic/curve":106,"./elliptic/curves":109,"./elliptic/ec":110,"./elliptic/eddsa":113,"./elliptic/utils":117,"brorand":51}],104:[function(require,module,exports){
 'use strict';
 
 var BN = require('bn.js');
@@ -16863,7 +14644,7 @@ BasePoint.prototype.dblp = function dblp(k) {
   return r;
 };
 
-},{"../../elliptic":112,"bn.js":59}],114:[function(require,module,exports){
+},{"../../elliptic":103,"bn.js":50}],105:[function(require,module,exports){
 'use strict';
 
 var curve = require('../curve');
@@ -17298,7 +15079,7 @@ Point.prototype.eqXToP = function eqXToP(x) {
 Point.prototype.toP = Point.prototype.normalize;
 Point.prototype.mixedAdd = Point.prototype.add;
 
-},{"../../elliptic":112,"../curve":115,"bn.js":59,"inherits":206}],115:[function(require,module,exports){
+},{"../../elliptic":103,"../curve":106,"bn.js":50,"inherits":197}],106:[function(require,module,exports){
 'use strict';
 
 var curve = exports;
@@ -17308,7 +15089,7 @@ curve.short = require('./short');
 curve.mont = require('./mont');
 curve.edwards = require('./edwards');
 
-},{"./base":113,"./edwards":114,"./mont":116,"./short":117}],116:[function(require,module,exports){
+},{"./base":104,"./edwards":105,"./mont":107,"./short":108}],107:[function(require,module,exports){
 'use strict';
 
 var curve = require('../curve');
@@ -17490,7 +15271,7 @@ Point.prototype.getX = function getX() {
   return this.x.fromRed();
 };
 
-},{"../../elliptic":112,"../curve":115,"bn.js":59,"inherits":206}],117:[function(require,module,exports){
+},{"../../elliptic":103,"../curve":106,"bn.js":50,"inherits":197}],108:[function(require,module,exports){
 'use strict';
 
 var curve = require('../curve');
@@ -18429,7 +16210,7 @@ JPoint.prototype.isInfinity = function isInfinity() {
   return this.z.cmpn(0) === 0;
 };
 
-},{"../../elliptic":112,"../curve":115,"bn.js":59,"inherits":206}],118:[function(require,module,exports){
+},{"../../elliptic":103,"../curve":106,"bn.js":50,"inherits":197}],109:[function(require,module,exports){
 'use strict';
 
 var curves = exports;
@@ -18636,7 +16417,7 @@ defineCurve('secp256k1', {
   ]
 });
 
-},{"../elliptic":112,"./precomputed/secp256k1":125,"hash.js":192}],119:[function(require,module,exports){
+},{"../elliptic":103,"./precomputed/secp256k1":116,"hash.js":183}],110:[function(require,module,exports){
 'use strict';
 
 var BN = require('bn.js');
@@ -18878,7 +16659,7 @@ EC.prototype.getKeyRecoveryParam = function(e, signature, Q, enc) {
   throw new Error('Unable to find valid recovery factor');
 };
 
-},{"../../elliptic":112,"./key":120,"./signature":121,"bn.js":59,"hmac-drbg":204}],120:[function(require,module,exports){
+},{"../../elliptic":103,"./key":111,"./signature":112,"bn.js":50,"hmac-drbg":195}],111:[function(require,module,exports){
 'use strict';
 
 var BN = require('bn.js');
@@ -18999,7 +16780,7 @@ KeyPair.prototype.inspect = function inspect() {
          ' pub: ' + (this.pub && this.pub.inspect()) + ' >';
 };
 
-},{"../../elliptic":112,"bn.js":59}],121:[function(require,module,exports){
+},{"../../elliptic":103,"bn.js":50}],112:[function(require,module,exports){
 'use strict';
 
 var BN = require('bn.js');
@@ -19136,7 +16917,7 @@ Signature.prototype.toDER = function toDER(enc) {
   return utils.encode(res, enc);
 };
 
-},{"../../elliptic":112,"bn.js":59}],122:[function(require,module,exports){
+},{"../../elliptic":103,"bn.js":50}],113:[function(require,module,exports){
 'use strict';
 
 var hash = require('hash.js');
@@ -19256,7 +17037,7 @@ EDDSA.prototype.isPoint = function isPoint(val) {
   return val instanceof this.pointClass;
 };
 
-},{"../../elliptic":112,"./key":123,"./signature":124,"hash.js":192}],123:[function(require,module,exports){
+},{"../../elliptic":103,"./key":114,"./signature":115,"hash.js":183}],114:[function(require,module,exports){
 'use strict';
 
 var elliptic = require('../../elliptic');
@@ -19354,7 +17135,7 @@ KeyPair.prototype.getPublic = function getPublic(enc) {
 
 module.exports = KeyPair;
 
-},{"../../elliptic":112}],124:[function(require,module,exports){
+},{"../../elliptic":103}],115:[function(require,module,exports){
 'use strict';
 
 var BN = require('bn.js');
@@ -19422,7 +17203,7 @@ Signature.prototype.toHex = function toHex() {
 
 module.exports = Signature;
 
-},{"../../elliptic":112,"bn.js":59}],125:[function(require,module,exports){
+},{"../../elliptic":103,"bn.js":50}],116:[function(require,module,exports){
 module.exports = {
   doubles: {
     step: 4,
@@ -20204,7 +17985,7 @@ module.exports = {
   }
 };
 
-},{}],126:[function(require,module,exports){
+},{}],117:[function(require,module,exports){
 'use strict';
 
 var utils = exports;
@@ -20326,7 +18107,7 @@ function intFromLE(bytes) {
 utils.intFromLE = intFromLE;
 
 
-},{"bn.js":59,"minimalistic-assert":211,"minimalistic-crypto-utils":212}],127:[function(require,module,exports){
+},{"bn.js":50,"minimalistic-assert":202,"minimalistic-crypto-utils":203}],118:[function(require,module,exports){
 module.exports={
   "_args": [
     [
@@ -20419,7 +18200,7 @@ module.exports={
   "version": "6.4.1"
 }
 
-},{}],128:[function(require,module,exports){
+},{}],119:[function(require,module,exports){
 var once = require('once');
 
 var noop = function() {};
@@ -20508,7 +18289,7 @@ var eos = function(stream, opts, callback) {
 
 module.exports = eos;
 
-},{"once":220}],129:[function(require,module,exports){
+},{"once":220}],120:[function(require,module,exports){
 // Inspired by Google Closure:
 // http://closure-library.googlecode.com/svn/docs/
 // closure_goog_array_array.js.html#goog.array.clear
@@ -20522,7 +18303,7 @@ module.exports = function () {
 	return this;
 };
 
-},{"../../object/valid-value":165}],130:[function(require,module,exports){
+},{"../../object/valid-value":156}],121:[function(require,module,exports){
 "use strict";
 
 var numberIsNaN       = require("../../number/is-nan")
@@ -20552,14 +18333,14 @@ module.exports = function (searchElement /*, fromIndex*/) {
 	return -1;
 };
 
-},{"../../number/is-nan":140,"../../number/to-pos-integer":144,"../../object/valid-value":165}],131:[function(require,module,exports){
+},{"../../number/is-nan":131,"../../number/to-pos-integer":135,"../../object/valid-value":156}],122:[function(require,module,exports){
 "use strict";
 
 module.exports = require("./is-implemented")()
 	? Array.from
 	: require("./shim");
 
-},{"./is-implemented":132,"./shim":133}],132:[function(require,module,exports){
+},{"./is-implemented":123,"./shim":124}],123:[function(require,module,exports){
 "use strict";
 
 module.exports = function () {
@@ -20570,7 +18351,7 @@ module.exports = function () {
 	return Boolean(result && (result !== arr) && (result[1] === "dwa"));
 };
 
-},{}],133:[function(require,module,exports){
+},{}],124:[function(require,module,exports){
 "use strict";
 
 var iteratorSymbol = require("es6-symbol").iterator
@@ -20691,7 +18472,7 @@ module.exports = function (arrayLike /*, mapFn, thisArg*/) {
 	return arr;
 };
 
-},{"../../function/is-arguments":134,"../../function/is-function":135,"../../number/to-pos-integer":144,"../../object/is-value":154,"../../object/valid-callable":164,"../../object/valid-value":165,"../../string/is-string":169,"es6-symbol":183}],134:[function(require,module,exports){
+},{"../../function/is-arguments":125,"../../function/is-function":126,"../../number/to-pos-integer":135,"../../object/is-value":145,"../../object/valid-callable":155,"../../object/valid-value":156,"../../string/is-string":160,"es6-symbol":174}],125:[function(require,module,exports){
 "use strict";
 
 var objToString = Object.prototype.toString
@@ -20705,7 +18486,7 @@ module.exports = function (value) {
 	return objToString.call(value) === id;
 };
 
-},{}],135:[function(require,module,exports){
+},{}],126:[function(require,module,exports){
 "use strict";
 
 var objToString = Object.prototype.toString, id = objToString.call(require("./noop"));
@@ -20714,20 +18495,20 @@ module.exports = function (value) {
 	return typeof value === "function" && objToString.call(value) === id;
 };
 
-},{"./noop":136}],136:[function(require,module,exports){
+},{"./noop":127}],127:[function(require,module,exports){
 "use strict";
 
 // eslint-disable-next-line no-empty-function
 module.exports = function () {};
 
-},{}],137:[function(require,module,exports){
+},{}],128:[function(require,module,exports){
 "use strict";
 
 module.exports = require("./is-implemented")()
 	? Math.sign
 	: require("./shim");
 
-},{"./is-implemented":138,"./shim":139}],138:[function(require,module,exports){
+},{"./is-implemented":129,"./shim":130}],129:[function(require,module,exports){
 "use strict";
 
 module.exports = function () {
@@ -20736,7 +18517,7 @@ module.exports = function () {
 	return (sign(10) === 1) && (sign(-20) === -1);
 };
 
-},{}],139:[function(require,module,exports){
+},{}],130:[function(require,module,exports){
 "use strict";
 
 module.exports = function (value) {
@@ -20745,14 +18526,14 @@ module.exports = function (value) {
 	return value > 0 ? 1 : -1;
 };
 
-},{}],140:[function(require,module,exports){
+},{}],131:[function(require,module,exports){
 "use strict";
 
 module.exports = require("./is-implemented")()
 	? Number.isNaN
 	: require("./shim");
 
-},{"./is-implemented":141,"./shim":142}],141:[function(require,module,exports){
+},{"./is-implemented":132,"./shim":133}],132:[function(require,module,exports){
 "use strict";
 
 module.exports = function () {
@@ -20761,7 +18542,7 @@ module.exports = function () {
 	return !numberIsNaN({}) && numberIsNaN(NaN) && !numberIsNaN(34);
 };
 
-},{}],142:[function(require,module,exports){
+},{}],133:[function(require,module,exports){
 "use strict";
 
 module.exports = function (value) {
@@ -20769,7 +18550,7 @@ module.exports = function (value) {
 	return value !== value;
 };
 
-},{}],143:[function(require,module,exports){
+},{}],134:[function(require,module,exports){
 "use strict";
 
 var sign = require("../math/sign")
@@ -20783,7 +18564,7 @@ module.exports = function (value) {
 	return sign(value) * floor(abs(value));
 };
 
-},{"../math/sign":137}],144:[function(require,module,exports){
+},{"../math/sign":128}],135:[function(require,module,exports){
 "use strict";
 
 var toInteger = require("./to-integer")
@@ -20794,7 +18575,7 @@ module.exports = function (value) {
  return max(0, toInteger(value));
 };
 
-},{"./to-integer":143}],145:[function(require,module,exports){
+},{"./to-integer":134}],136:[function(require,module,exports){
 // Internal method, used by iteration functions.
 // Calls a function for each key-value pair found in object
 // Optionally takes compareFn to iterate object in specific order
@@ -20826,14 +18607,14 @@ module.exports = function (method, defVal) {
 	};
 };
 
-},{"./valid-callable":164,"./valid-value":165}],146:[function(require,module,exports){
+},{"./valid-callable":155,"./valid-value":156}],137:[function(require,module,exports){
 "use strict";
 
 module.exports = require("./is-implemented")()
 	? Object.assign
 	: require("./shim");
 
-},{"./is-implemented":147,"./shim":148}],147:[function(require,module,exports){
+},{"./is-implemented":138,"./shim":139}],138:[function(require,module,exports){
 "use strict";
 
 module.exports = function () {
@@ -20844,7 +18625,7 @@ module.exports = function () {
 	return (obj.foo + obj.bar + obj.trzy) === "razdwatrzy";
 };
 
-},{}],148:[function(require,module,exports){
+},{}],139:[function(require,module,exports){
 "use strict";
 
 var keys  = require("../keys")
@@ -20869,7 +18650,7 @@ module.exports = function (dest, src /*, …srcn*/) {
 	return dest;
 };
 
-},{"../keys":155,"../valid-value":165}],149:[function(require,module,exports){
+},{"../keys":146,"../valid-value":156}],140:[function(require,module,exports){
 "use strict";
 
 var aFrom  = require("../array/from")
@@ -20890,7 +18671,7 @@ module.exports = function (obj/*, propertyNames, options*/) {
 	return result;
 };
 
-},{"../array/from":131,"./assign":146,"./valid-value":165}],150:[function(require,module,exports){
+},{"../array/from":122,"./assign":137,"./valid-value":156}],141:[function(require,module,exports){
 // Workaround for http://code.google.com/p/v8/issues/detail?id=2804
 
 "use strict";
@@ -20940,12 +18721,12 @@ module.exports = (function () {
 	};
 }());
 
-},{"./set-prototype-of/is-implemented":162,"./set-prototype-of/shim":163}],151:[function(require,module,exports){
+},{"./set-prototype-of/is-implemented":153,"./set-prototype-of/shim":154}],142:[function(require,module,exports){
 "use strict";
 
 module.exports = require("./_iterate")("forEach");
 
-},{"./_iterate":145}],152:[function(require,module,exports){
+},{"./_iterate":136}],143:[function(require,module,exports){
 // Deprecated
 
 "use strict";
@@ -20954,7 +18735,7 @@ module.exports = function (obj) {
  return typeof obj === "function";
 };
 
-},{}],153:[function(require,module,exports){
+},{}],144:[function(require,module,exports){
 "use strict";
 
 var isValue = require("./is-value");
@@ -20965,7 +18746,7 @@ module.exports = function (value) {
 	return (isValue(value) && map[typeof value]) || false;
 };
 
-},{"./is-value":154}],154:[function(require,module,exports){
+},{"./is-value":145}],145:[function(require,module,exports){
 "use strict";
 
 var _undefined = require("../function/noop")(); // Support ES3 engines
@@ -20974,12 +18755,12 @@ module.exports = function (val) {
  return (val !== _undefined) && (val !== null);
 };
 
-},{"../function/noop":136}],155:[function(require,module,exports){
+},{"../function/noop":127}],146:[function(require,module,exports){
 "use strict";
 
 module.exports = require("./is-implemented")() ? Object.keys : require("./shim");
 
-},{"./is-implemented":156,"./shim":157}],156:[function(require,module,exports){
+},{"./is-implemented":147,"./shim":148}],147:[function(require,module,exports){
 "use strict";
 
 module.exports = function () {
@@ -20991,7 +18772,7 @@ module.exports = function () {
 	}
 };
 
-},{}],157:[function(require,module,exports){
+},{}],148:[function(require,module,exports){
 "use strict";
 
 var isValue = require("../is-value");
@@ -21000,7 +18781,7 @@ var keys = Object.keys;
 
 module.exports = function (object) { return keys(isValue(object) ? Object(object) : object); };
 
-},{"../is-value":154}],158:[function(require,module,exports){
+},{"../is-value":145}],149:[function(require,module,exports){
 "use strict";
 
 var callable = require("./valid-callable")
@@ -21016,7 +18797,7 @@ module.exports = function (obj, cb /*, thisArg*/) {
 	return result;
 };
 
-},{"./for-each":151,"./valid-callable":164}],159:[function(require,module,exports){
+},{"./for-each":142,"./valid-callable":155}],150:[function(require,module,exports){
 "use strict";
 
 var isValue = require("./is-value");
@@ -21038,7 +18819,7 @@ module.exports = function (opts1 /*, …options*/) {
 	return result;
 };
 
-},{"./is-value":154}],160:[function(require,module,exports){
+},{"./is-value":145}],151:[function(require,module,exports){
 "use strict";
 
 var forEach = Array.prototype.forEach, create = Object.create;
@@ -21052,14 +18833,14 @@ module.exports = function (arg /*, …args*/) {
 	return set;
 };
 
-},{}],161:[function(require,module,exports){
+},{}],152:[function(require,module,exports){
 "use strict";
 
 module.exports = require("./is-implemented")()
 	? Object.setPrototypeOf
 	: require("./shim");
 
-},{"./is-implemented":162,"./shim":163}],162:[function(require,module,exports){
+},{"./is-implemented":153,"./shim":154}],153:[function(require,module,exports){
 "use strict";
 
 var create = Object.create, getPrototypeOf = Object.getPrototypeOf, plainObject = {};
@@ -21070,7 +18851,7 @@ module.exports = function (/* CustomCreate*/) {
 	return getPrototypeOf(setPrototypeOf(customCreate(null), plainObject)) === plainObject;
 };
 
-},{}],163:[function(require,module,exports){
+},{}],154:[function(require,module,exports){
 /* eslint no-proto: "off" */
 
 // Big thanks to @WebReflection for sorting this out
@@ -21158,7 +18939,7 @@ module.exports = (function (status) {
 
 require("../create");
 
-},{"../create":150,"../is-object":153,"../valid-value":165}],164:[function(require,module,exports){
+},{"../create":141,"../is-object":144,"../valid-value":156}],155:[function(require,module,exports){
 "use strict";
 
 module.exports = function (fn) {
@@ -21166,7 +18947,7 @@ module.exports = function (fn) {
 	return fn;
 };
 
-},{}],165:[function(require,module,exports){
+},{}],156:[function(require,module,exports){
 "use strict";
 
 var isValue = require("./is-value");
@@ -21176,14 +18957,14 @@ module.exports = function (value) {
 	return value;
 };
 
-},{"./is-value":154}],166:[function(require,module,exports){
+},{"./is-value":145}],157:[function(require,module,exports){
 "use strict";
 
 module.exports = require("./is-implemented")()
 	? String.prototype.contains
 	: require("./shim");
 
-},{"./is-implemented":167,"./shim":168}],167:[function(require,module,exports){
+},{"./is-implemented":158,"./shim":159}],158:[function(require,module,exports){
 "use strict";
 
 var str = "razdwatrzy";
@@ -21193,7 +18974,7 @@ module.exports = function () {
 	return (str.contains("dwa") === true) && (str.contains("foo") === false);
 };
 
-},{}],168:[function(require,module,exports){
+},{}],159:[function(require,module,exports){
 "use strict";
 
 var indexOf = String.prototype.indexOf;
@@ -21202,7 +18983,7 @@ module.exports = function (searchString/*, position*/) {
 	return indexOf.call(this, searchString, arguments[1]) > -1;
 };
 
-},{}],169:[function(require,module,exports){
+},{}],160:[function(require,module,exports){
 "use strict";
 
 var objToString = Object.prototype.toString, id = objToString.call("");
@@ -21217,7 +18998,7 @@ module.exports = function (value) {
 	);
 };
 
-},{}],170:[function(require,module,exports){
+},{}],161:[function(require,module,exports){
 "use strict";
 
 var setPrototypeOf = require("es5-ext/object/set-prototype-of")
@@ -21251,7 +19032,7 @@ ArrayIterator.prototype = Object.create(Iterator.prototype, {
 });
 defineProperty(ArrayIterator.prototype, Symbol.toStringTag, d("c", "Array Iterator"));
 
-},{"./":173,"d":100,"es5-ext/object/set-prototype-of":161,"es5-ext/string/#/contains":166,"es6-symbol":183}],171:[function(require,module,exports){
+},{"./":164,"d":91,"es5-ext/object/set-prototype-of":152,"es5-ext/string/#/contains":157,"es6-symbol":174}],162:[function(require,module,exports){
 "use strict";
 
 var isArguments = require("es5-ext/function/is-arguments")
@@ -21300,7 +19081,7 @@ module.exports = function (iterable, cb /*, thisArg*/) {
 	}
 };
 
-},{"./get":172,"es5-ext/function/is-arguments":134,"es5-ext/object/valid-callable":164,"es5-ext/string/is-string":169}],172:[function(require,module,exports){
+},{"./get":163,"es5-ext/function/is-arguments":125,"es5-ext/object/valid-callable":155,"es5-ext/string/is-string":160}],163:[function(require,module,exports){
 "use strict";
 
 var isArguments    = require("es5-ext/function/is-arguments")
@@ -21317,7 +19098,7 @@ module.exports = function (obj) {
 	return new ArrayIterator(obj);
 };
 
-},{"./array":170,"./string":175,"./valid-iterable":176,"es5-ext/function/is-arguments":134,"es5-ext/string/is-string":169,"es6-symbol":183}],173:[function(require,module,exports){
+},{"./array":161,"./string":166,"./valid-iterable":167,"es5-ext/function/is-arguments":125,"es5-ext/string/is-string":160,"es6-symbol":174}],164:[function(require,module,exports){
 "use strict";
 
 var clear    = require("es5-ext/array/#/clear")
@@ -21425,7 +19206,7 @@ defineProperty(
 	})
 );
 
-},{"d":100,"d/auto-bind":99,"es5-ext/array/#/clear":129,"es5-ext/object/assign":146,"es5-ext/object/valid-callable":164,"es5-ext/object/valid-value":165,"es6-symbol":183}],174:[function(require,module,exports){
+},{"d":91,"d/auto-bind":90,"es5-ext/array/#/clear":120,"es5-ext/object/assign":137,"es5-ext/object/valid-callable":155,"es5-ext/object/valid-value":156,"es6-symbol":174}],165:[function(require,module,exports){
 "use strict";
 
 var isArguments = require("es5-ext/function/is-arguments")
@@ -21443,7 +19224,7 @@ module.exports = function (value) {
 	return typeof value[iteratorSymbol] === "function";
 };
 
-},{"es5-ext/function/is-arguments":134,"es5-ext/object/is-value":154,"es5-ext/string/is-string":169,"es6-symbol":183}],175:[function(require,module,exports){
+},{"es5-ext/function/is-arguments":125,"es5-ext/object/is-value":145,"es5-ext/string/is-string":160,"es6-symbol":174}],166:[function(require,module,exports){
 // Thanks @mathiasbynens
 // http://mathiasbynens.be/notes/javascript-unicode#iterating-over-symbols
 
@@ -21484,7 +19265,7 @@ StringIterator.prototype = Object.create(Iterator.prototype, {
 });
 defineProperty(StringIterator.prototype, Symbol.toStringTag, d("c", "String Iterator"));
 
-},{"./":173,"d":100,"es5-ext/object/set-prototype-of":161,"es6-symbol":183}],176:[function(require,module,exports){
+},{"./":164,"d":91,"es5-ext/object/set-prototype-of":152,"es6-symbol":174}],167:[function(require,module,exports){
 "use strict";
 
 var isIterable = require("./is-iterable");
@@ -21494,12 +19275,12 @@ module.exports = function (value) {
 	return value;
 };
 
-},{"./is-iterable":174}],177:[function(require,module,exports){
+},{"./is-iterable":165}],168:[function(require,module,exports){
 'use strict';
 
 module.exports = require('./is-implemented')() ? Map : require('./polyfill');
 
-},{"./is-implemented":178,"./polyfill":182}],178:[function(require,module,exports){
+},{"./is-implemented":169,"./polyfill":173}],169:[function(require,module,exports){
 'use strict';
 
 module.exports = function () {
@@ -21533,7 +19314,7 @@ module.exports = function () {
 	return true;
 };
 
-},{}],179:[function(require,module,exports){
+},{}],170:[function(require,module,exports){
 // Exports true if environment provides native `Map` implementation,
 // whatever that is.
 
@@ -21544,13 +19325,13 @@ module.exports = (function () {
 	return (Object.prototype.toString.call(new Map()) === '[object Map]');
 }());
 
-},{}],180:[function(require,module,exports){
+},{}],171:[function(require,module,exports){
 'use strict';
 
 module.exports = require('es5-ext/object/primitive-set')('key',
 	'value', 'key+value');
 
-},{"es5-ext/object/primitive-set":160}],181:[function(require,module,exports){
+},{"es5-ext/object/primitive-set":151}],172:[function(require,module,exports){
 'use strict';
 
 var setPrototypeOf    = require('es5-ext/object/set-prototype-of')
@@ -21590,7 +19371,7 @@ MapIterator.prototype = Object.create(Iterator.prototype, {
 Object.defineProperty(MapIterator.prototype, toStringTagSymbol,
 	d('c', 'Map Iterator'));
 
-},{"./iterator-kinds":180,"d":100,"es5-ext/object/set-prototype-of":161,"es6-iterator":173,"es6-symbol":183}],182:[function(require,module,exports){
+},{"./iterator-kinds":171,"d":91,"es5-ext/object/set-prototype-of":152,"es6-iterator":164,"es6-symbol":174}],173:[function(require,module,exports){
 'use strict';
 
 var clear          = require('es5-ext/array/#/clear')
@@ -21696,12 +19477,12 @@ Object.defineProperty(MapPoly.prototype, Symbol.iterator, d(function () {
 }));
 Object.defineProperty(MapPoly.prototype, Symbol.toStringTag, d('c', 'Map'));
 
-},{"./is-native-implemented":179,"./lib/iterator":181,"d":100,"es5-ext/array/#/clear":129,"es5-ext/array/#/e-index-of":130,"es5-ext/object/set-prototype-of":161,"es5-ext/object/valid-callable":164,"es5-ext/object/valid-value":165,"es6-iterator/for-of":171,"es6-iterator/valid-iterable":176,"es6-symbol":183,"event-emitter":188}],183:[function(require,module,exports){
+},{"./is-native-implemented":170,"./lib/iterator":172,"d":91,"es5-ext/array/#/clear":120,"es5-ext/array/#/e-index-of":121,"es5-ext/object/set-prototype-of":152,"es5-ext/object/valid-callable":155,"es5-ext/object/valid-value":156,"es6-iterator/for-of":162,"es6-iterator/valid-iterable":167,"es6-symbol":174,"event-emitter":179}],174:[function(require,module,exports){
 'use strict';
 
 module.exports = require('./is-implemented')() ? Symbol : require('./polyfill');
 
-},{"./is-implemented":184,"./polyfill":186}],184:[function(require,module,exports){
+},{"./is-implemented":175,"./polyfill":177}],175:[function(require,module,exports){
 'use strict';
 
 var validTypes = { object: true, symbol: true };
@@ -21720,7 +19501,7 @@ module.exports = function () {
 	return true;
 };
 
-},{}],185:[function(require,module,exports){
+},{}],176:[function(require,module,exports){
 'use strict';
 
 module.exports = function (x) {
@@ -21731,7 +19512,7 @@ module.exports = function (x) {
 	return (x[x.constructor.toStringTag] === 'Symbol');
 };
 
-},{}],186:[function(require,module,exports){
+},{}],177:[function(require,module,exports){
 // ES2015 Symbol polyfill for environments that do not (or partially) support it
 
 'use strict';
@@ -21851,7 +19632,7 @@ defineProperty(HiddenSymbol.prototype, SymbolPolyfill.toStringTag,
 defineProperty(HiddenSymbol.prototype, SymbolPolyfill.toPrimitive,
 	d('c', SymbolPolyfill.prototype[SymbolPolyfill.toPrimitive]));
 
-},{"./validate-symbol":187,"d":100}],187:[function(require,module,exports){
+},{"./validate-symbol":178,"d":91}],178:[function(require,module,exports){
 'use strict';
 
 var isSymbol = require('./is-symbol');
@@ -21861,7 +19642,7 @@ module.exports = function (value) {
 	return value;
 };
 
-},{"./is-symbol":185}],188:[function(require,module,exports){
+},{"./is-symbol":176}],179:[function(require,module,exports){
 'use strict';
 
 var d        = require('d')
@@ -21995,7 +19776,7 @@ module.exports = exports = function (o) {
 };
 exports.methods = methods;
 
-},{"d":100,"es5-ext/object/valid-callable":164}],189:[function(require,module,exports){
+},{"d":91,"es5-ext/object/valid-callable":155}],180:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -22520,7 +20301,7 @@ function functionBindPolyfill(context) {
   };
 }
 
-},{}],190:[function(require,module,exports){
+},{}],181:[function(require,module,exports){
 var Buffer = require('safe-buffer').Buffer
 var MD5 = require('md5.js')
 
@@ -22567,7 +20348,7 @@ function EVP_BytesToKey (password, salt, keyBits, ivLen) {
 
 module.exports = EVP_BytesToKey
 
-},{"md5.js":209,"safe-buffer":266}],191:[function(require,module,exports){
+},{"md5.js":200,"safe-buffer":266}],182:[function(require,module,exports){
 'use strict'
 var Buffer = require('safe-buffer').Buffer
 var Transform = require('stream').Transform
@@ -22664,7 +20445,7 @@ HashBase.prototype._digest = function () {
 
 module.exports = HashBase
 
-},{"inherits":206,"safe-buffer":266,"stream":275}],192:[function(require,module,exports){
+},{"inherits":197,"safe-buffer":266,"stream":275}],183:[function(require,module,exports){
 var hash = exports;
 
 hash.utils = require('./hash/utils');
@@ -22681,7 +20462,7 @@ hash.sha384 = hash.sha.sha384;
 hash.sha512 = hash.sha.sha512;
 hash.ripemd160 = hash.ripemd.ripemd160;
 
-},{"./hash/common":193,"./hash/hmac":194,"./hash/ripemd":195,"./hash/sha":196,"./hash/utils":203}],193:[function(require,module,exports){
+},{"./hash/common":184,"./hash/hmac":185,"./hash/ripemd":186,"./hash/sha":187,"./hash/utils":194}],184:[function(require,module,exports){
 'use strict';
 
 var utils = require('./utils');
@@ -22775,7 +20556,7 @@ BlockHash.prototype._pad = function pad() {
   return res;
 };
 
-},{"./utils":203,"minimalistic-assert":211}],194:[function(require,module,exports){
+},{"./utils":194,"minimalistic-assert":202}],185:[function(require,module,exports){
 'use strict';
 
 var utils = require('./utils');
@@ -22824,7 +20605,7 @@ Hmac.prototype.digest = function digest(enc) {
   return this.outer.digest(enc);
 };
 
-},{"./utils":203,"minimalistic-assert":211}],195:[function(require,module,exports){
+},{"./utils":194,"minimalistic-assert":202}],186:[function(require,module,exports){
 'use strict';
 
 var utils = require('./utils');
@@ -22972,7 +20753,7 @@ var sh = [
   8, 5, 12, 9, 12, 5, 14, 6, 8, 13, 6, 5, 15, 13, 11, 11
 ];
 
-},{"./common":193,"./utils":203}],196:[function(require,module,exports){
+},{"./common":184,"./utils":194}],187:[function(require,module,exports){
 'use strict';
 
 exports.sha1 = require('./sha/1');
@@ -22981,7 +20762,7 @@ exports.sha256 = require('./sha/256');
 exports.sha384 = require('./sha/384');
 exports.sha512 = require('./sha/512');
 
-},{"./sha/1":197,"./sha/224":198,"./sha/256":199,"./sha/384":200,"./sha/512":201}],197:[function(require,module,exports){
+},{"./sha/1":188,"./sha/224":189,"./sha/256":190,"./sha/384":191,"./sha/512":192}],188:[function(require,module,exports){
 'use strict';
 
 var utils = require('../utils');
@@ -23057,7 +20838,7 @@ SHA1.prototype._digest = function digest(enc) {
     return utils.split32(this.h, 'big');
 };
 
-},{"../common":193,"../utils":203,"./common":202}],198:[function(require,module,exports){
+},{"../common":184,"../utils":194,"./common":193}],189:[function(require,module,exports){
 'use strict';
 
 var utils = require('../utils');
@@ -23089,7 +20870,7 @@ SHA224.prototype._digest = function digest(enc) {
 };
 
 
-},{"../utils":203,"./256":199}],199:[function(require,module,exports){
+},{"../utils":194,"./256":190}],190:[function(require,module,exports){
 'use strict';
 
 var utils = require('../utils');
@@ -23196,7 +20977,7 @@ SHA256.prototype._digest = function digest(enc) {
     return utils.split32(this.h, 'big');
 };
 
-},{"../common":193,"../utils":203,"./common":202,"minimalistic-assert":211}],200:[function(require,module,exports){
+},{"../common":184,"../utils":194,"./common":193,"minimalistic-assert":202}],191:[function(require,module,exports){
 'use strict';
 
 var utils = require('../utils');
@@ -23233,7 +21014,7 @@ SHA384.prototype._digest = function digest(enc) {
     return utils.split32(this.h.slice(0, 12), 'big');
 };
 
-},{"../utils":203,"./512":201}],201:[function(require,module,exports){
+},{"../utils":194,"./512":192}],192:[function(require,module,exports){
 'use strict';
 
 var utils = require('../utils');
@@ -23565,7 +21346,7 @@ function g1_512_lo(xh, xl) {
   return r;
 }
 
-},{"../common":193,"../utils":203,"minimalistic-assert":211}],202:[function(require,module,exports){
+},{"../common":184,"../utils":194,"minimalistic-assert":202}],193:[function(require,module,exports){
 'use strict';
 
 var utils = require('../utils');
@@ -23616,7 +21397,7 @@ function g1_256(x) {
 }
 exports.g1_256 = g1_256;
 
-},{"../utils":203}],203:[function(require,module,exports){
+},{"../utils":194}],194:[function(require,module,exports){
 'use strict';
 
 var assert = require('minimalistic-assert');
@@ -23896,7 +21677,7 @@ function shr64_lo(ah, al, num) {
 }
 exports.shr64_lo = shr64_lo;
 
-},{"inherits":206,"minimalistic-assert":211}],204:[function(require,module,exports){
+},{"inherits":197,"minimalistic-assert":202}],195:[function(require,module,exports){
 'use strict';
 
 var hash = require('hash.js');
@@ -24011,7 +21792,7 @@ HmacDRBG.prototype.generate = function generate(len, enc, add, addEnc) {
   return utils.encode(res, enc);
 };
 
-},{"hash.js":192,"minimalistic-assert":211,"minimalistic-crypto-utils":212}],205:[function(require,module,exports){
+},{"hash.js":183,"minimalistic-assert":202,"minimalistic-crypto-utils":203}],196:[function(require,module,exports){
 exports.read = function (buffer, offset, isLE, mLen, nBytes) {
   var e, m
   var eLen = (nBytes * 8) - mLen - 1
@@ -24097,7 +21878,7 @@ exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
   buffer[offset + i - d] |= s * 128
 }
 
-},{}],206:[function(require,module,exports){
+},{}],197:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -24122,7 +21903,7 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],207:[function(require,module,exports){
+},{}],198:[function(require,module,exports){
 /*!
  * Determine if an object is a Buffer
  *
@@ -24145,14 +21926,14 @@ function isSlowBuffer (obj) {
   return typeof obj.readFloatLE === 'function' && typeof obj.slice === 'function' && isBuffer(obj.slice(0, 0))
 }
 
-},{}],208:[function(require,module,exports){
+},{}],199:[function(require,module,exports){
 var toString = {}.toString;
 
 module.exports = Array.isArray || function (arr) {
   return toString.call(arr) == '[object Array]';
 };
 
-},{}],209:[function(require,module,exports){
+},{}],200:[function(require,module,exports){
 'use strict'
 var inherits = require('inherits')
 var HashBase = require('hash-base')
@@ -24300,7 +22081,7 @@ function fnI (a, b, c, d, m, k, s) {
 
 module.exports = MD5
 
-},{"hash-base":191,"inherits":206,"safe-buffer":266}],210:[function(require,module,exports){
+},{"hash-base":182,"inherits":197,"safe-buffer":266}],201:[function(require,module,exports){
 var bn = require('bn.js');
 var brorand = require('brorand');
 
@@ -24417,7 +22198,7 @@ MillerRabin.prototype.getDivisor = function getDivisor(n, k) {
   return false;
 };
 
-},{"bn.js":59,"brorand":60}],211:[function(require,module,exports){
+},{"bn.js":50,"brorand":51}],202:[function(require,module,exports){
 module.exports = assert;
 
 function assert(val, msg) {
@@ -24430,7 +22211,7 @@ assert.equal = function assertEqual(l, r, msg) {
     throw new Error(msg || ('Assertion failed: ' + l + ' != ' + r));
 };
 
-},{}],212:[function(require,module,exports){
+},{}],203:[function(require,module,exports){
 'use strict';
 
 var utils = exports;
@@ -24490,7 +22271,7 @@ utils.encode = function encode(arr, enc) {
     return arr;
 };
 
-},{}],213:[function(require,module,exports){
+},{}],204:[function(require,module,exports){
 'use strict'
 
 var Buffer = require('safe-buffer').Buffer
@@ -24680,7 +22461,7 @@ protocol.EMPTY = {
   disconnect: Buffer.from([protocol.codes['disconnect'] << 4, 0])
 }
 
-},{"safe-buffer":266}],214:[function(require,module,exports){
+},{"safe-buffer":266}],205:[function(require,module,exports){
 'use strict'
 
 var Buffer = require('safe-buffer').Buffer
@@ -24738,14 +22519,14 @@ Accumulator.prototype.concat = function () {
 
 module.exports = generate
 
-},{"./writeToStream":219,"events":189,"inherits":206,"safe-buffer":266}],215:[function(require,module,exports){
+},{"./writeToStream":210,"events":180,"inherits":197,"safe-buffer":266}],206:[function(require,module,exports){
 'use strict'
 
 exports.parser = require('./parser')
 exports.generate = require('./generate')
 exports.writeToStream = require('./writeToStream')
 
-},{"./generate":214,"./parser":218,"./writeToStream":219}],216:[function(require,module,exports){
+},{"./generate":205,"./parser":209,"./writeToStream":210}],207:[function(require,module,exports){
 'use strict'
 
 var Buffer = require('safe-buffer').Buffer
@@ -24814,7 +22595,7 @@ module.exports = {
   generate4ByteBuffer: generate4ByteBuffer
 }
 
-},{"safe-buffer":266}],217:[function(require,module,exports){
+},{"safe-buffer":266}],208:[function(require,module,exports){
 
 function Packet () {
   this.cmd = null
@@ -24828,7 +22609,7 @@ function Packet () {
 
 module.exports = Packet
 
-},{}],218:[function(require,module,exports){
+},{}],209:[function(require,module,exports){
 'use strict'
 
 var bl = require('bl')
@@ -25467,7 +23248,7 @@ Parser.prototype._emitError = function (err) {
 
 module.exports = Parser
 
-},{"./constants":213,"./packet":217,"bl":58,"events":189,"inherits":206}],219:[function(require,module,exports){
+},{"./constants":204,"./packet":208,"bl":49,"events":180,"inherits":197}],210:[function(require,module,exports){
 'use strict'
 
 var protocol = require('./constants')
@@ -26531,7 +24312,2262 @@ function isStringOrBuffer (field) {
 
 module.exports = generate
 
-},{"./constants":213,"./numbers":216,"process-nextick-args":232,"safe-buffer":266}],220:[function(require,module,exports){
+},{"./constants":204,"./numbers":207,"process-nextick-args":232,"safe-buffer":266}],211:[function(require,module,exports){
+(function (process,global){
+'use strict'
+
+/**
+ * Module dependencies
+ */
+var events = require('events')
+var Store = require('./store')
+var mqttPacket = require('mqtt-packet')
+var Writable = require('readable-stream').Writable
+var inherits = require('inherits')
+var reInterval = require('reinterval')
+var validations = require('./validations')
+var xtend = require('xtend')
+var setImmediate = global.setImmediate || function (callback) {
+  // works in node v0.8
+  process.nextTick(callback)
+}
+var defaultConnectOptions = {
+  keepalive: 60,
+  reschedulePings: true,
+  protocolId: 'MQTT',
+  protocolVersion: 4,
+  reconnectPeriod: 1000,
+  connectTimeout: 30 * 1000,
+  clean: true,
+  resubscribe: true
+}
+var errors = {
+  0: '',
+  1: 'Unacceptable protocol version',
+  2: 'Identifier rejected',
+  3: 'Server unavailable',
+  4: 'Bad username or password',
+  5: 'Not authorized',
+  16: 'No matching subscribers',
+  17: 'No subscription existed',
+  128: 'Unspecified error',
+  129: 'Malformed Packet',
+  130: 'Protocol Error',
+  131: 'Implementation specific error',
+  132: 'Unsupported Protocol Version',
+  133: 'Client Identifier not valid',
+  134: 'Bad User Name or Password',
+  135: 'Not authorized',
+  136: 'Server unavailable',
+  137: 'Server busy',
+  138: 'Banned',
+  139: 'Server shutting down',
+  140: 'Bad authentication method',
+  141: 'Keep Alive timeout',
+  142: 'Session taken over',
+  143: 'Topic Filter invalid',
+  144: 'Topic Name invalid',
+  145: 'Packet identifier in use',
+  146: 'Packet Identifier not found',
+  147: 'Receive Maximum exceeded',
+  148: 'Topic Alias invalid',
+  149: 'Packet too large',
+  150: 'Message rate too high',
+  151: 'Quota exceeded',
+  152: 'Administrative action',
+  153: 'Payload format invalid',
+  154: 'Retain not supported',
+  155: 'QoS not supported',
+  156: 'Use another server',
+  157: 'Server moved',
+  158: 'Shared Subscriptions not supported',
+  159: 'Connection rate exceeded',
+  160: 'Maximum connect time',
+  161: 'Subscription Identifiers not supported',
+  162: 'Wildcard Subscriptions not supported'
+}
+
+function defaultId () {
+  return 'mqttjs_' + Math.random().toString(16).substr(2, 8)
+}
+
+function sendPacket (client, packet, cb) {
+  client.emit('packetsend', packet)
+
+  var result = mqttPacket.writeToStream(packet, client.stream, client.options)
+
+  if (!result && cb) {
+    client.stream.once('drain', cb)
+  } else if (cb) {
+    cb()
+  }
+}
+
+function flush (queue) {
+  if (queue) {
+    Object.keys(queue).forEach(function (messageId) {
+      if (typeof queue[messageId].cb === 'function') {
+        queue[messageId].cb(new Error('Connection closed'))
+        delete queue[messageId]
+      }
+    })
+  }
+}
+
+function flushVolatile (queue) {
+  if (queue) {
+    Object.keys(queue).forEach(function (messageId) {
+      if (queue[messageId].volatile && typeof queue[messageId].cb === 'function') {
+        queue[messageId].cb(new Error('Connection closed'))
+        delete queue[messageId]
+      }
+    })
+  }
+}
+
+function storeAndSend (client, packet, cb, cbStorePut) {
+  client.outgoingStore.put(packet, function storedPacket (err) {
+    if (err) {
+      return cb && cb(err)
+    }
+    cbStorePut()
+    sendPacket(client, packet, cb)
+  })
+}
+
+function nop () {}
+
+/**
+ * MqttClient constructor
+ *
+ * @param {Stream} stream - stream
+ * @param {Object} [options] - connection options
+ * (see Connection#connect)
+ */
+function MqttClient (streamBuilder, options) {
+  var k
+  var that = this
+
+  if (!(this instanceof MqttClient)) {
+    return new MqttClient(streamBuilder, options)
+  }
+
+  this.options = options || {}
+
+  // Defaults
+  for (k in defaultConnectOptions) {
+    if (typeof this.options[k] === 'undefined') {
+      this.options[k] = defaultConnectOptions[k]
+    } else {
+      this.options[k] = options[k]
+    }
+  }
+
+  this.options.clientId = (typeof options.clientId === 'string') ? options.clientId : defaultId()
+
+  this.options.customHandleAcks = (options.protocolVersion === 5 && options.customHandleAcks) ? options.customHandleAcks : function () { arguments[3](0) }
+
+  this.streamBuilder = streamBuilder
+
+  // Inflight message storages
+  this.outgoingStore = options.outgoingStore || new Store()
+  this.incomingStore = options.incomingStore || new Store()
+
+  // Should QoS zero messages be queued when the connection is broken?
+  this.queueQoSZero = options.queueQoSZero === undefined ? true : options.queueQoSZero
+
+  // map of subscribed topics to support reconnection
+  this._resubscribeTopics = {}
+
+  // map of a subscribe messageId and a topic
+  this.messageIdToTopic = {}
+
+  // Ping timer, setup in _setupPingTimer
+  this.pingTimer = null
+  // Is the client connected?
+  this.connected = false
+  // Are we disconnecting?
+  this.disconnecting = false
+  // Packet queue
+  this.queue = []
+  // connack timer
+  this.connackTimer = null
+  // Reconnect timer
+  this.reconnectTimer = null
+  // Is processing store?
+  this._storeProcessing = false
+  // Packet Ids are put into the store during store processing
+  this._packetIdsDuringStoreProcessing = {}
+  /**
+   * MessageIDs starting with 1
+   * ensure that nextId is min. 1, see https://github.com/mqttjs/MQTT.js/issues/810
+   */
+  this.nextId = Math.max(1, Math.floor(Math.random() * 65535))
+
+  // Inflight callbacks
+  this.outgoing = {}
+
+  // True if connection is first time.
+  this._firstConnection = true
+
+  // Mark disconnected on stream close
+  this.on('close', function () {
+    this.connected = false
+    clearTimeout(this.connackTimer)
+  })
+
+  // Send queued packets
+  this.on('connect', function () {
+    var queue = this.queue
+
+    function deliver () {
+      var entry = queue.shift()
+      var packet = null
+
+      if (!entry) {
+        return
+      }
+
+      packet = entry.packet
+
+      that._sendPacket(
+        packet,
+        function (err) {
+          if (entry.cb) {
+            entry.cb(err)
+          }
+          deliver()
+        }
+      )
+    }
+
+    deliver()
+  })
+
+  // Clear ping timer
+  this.on('close', function () {
+    if (that.pingTimer !== null) {
+      that.pingTimer.clear()
+      that.pingTimer = null
+    }
+  })
+
+  // Setup reconnect timer on disconnect
+  this.on('close', this._setupReconnect)
+
+  events.EventEmitter.call(this)
+
+  this._setupStream()
+}
+inherits(MqttClient, events.EventEmitter)
+
+/**
+ * setup the event handlers in the inner stream.
+ *
+ * @api private
+ */
+MqttClient.prototype._setupStream = function () {
+  var connectPacket
+  var that = this
+  var writable = new Writable()
+  var parser = mqttPacket.parser(this.options)
+  var completeParse = null
+  var packets = []
+
+  this._clearReconnect()
+
+  this.stream = this.streamBuilder(this)
+
+  parser.on('packet', function (packet) {
+    packets.push(packet)
+  })
+
+  function nextTickWork () {
+    if (packets.length) {
+      process.nextTick(work)
+    } else {
+      var done = completeParse
+      completeParse = null
+      done()
+    }
+  }
+
+  function work () {
+    var packet = packets.shift()
+
+    if (packet) {
+      that._handlePacket(packet, nextTickWork)
+    } else {
+      var done = completeParse
+      completeParse = null
+      if (done) done()
+    }
+  }
+
+  writable._write = function (buf, enc, done) {
+    completeParse = done
+    parser.parse(buf)
+    work()
+  }
+
+  this.stream.pipe(writable)
+
+  // Suppress connection errors
+  this.stream.on('error', nop)
+
+  // Echo stream close
+  this.stream.on('close', function () {
+    flushVolatile(that.outgoing)
+    that.emit('close')
+  })
+
+  // Send a connect packet
+  connectPacket = Object.create(this.options)
+  connectPacket.cmd = 'connect'
+  // avoid message queue
+  sendPacket(this, connectPacket)
+
+  // Echo connection errors
+  parser.on('error', this.emit.bind(this, 'error'))
+
+  // auth
+  if (this.options.properties) {
+    if (!this.options.properties.authenticationMethod && this.options.properties.authenticationData) {
+      this.emit('error', new Error('Packet has no Authentication Method'))
+      return this
+    }
+    if (this.options.properties.authenticationMethod && this.options.authPacket && typeof this.options.authPacket === 'object') {
+      var authPacket = xtend({cmd: 'auth', reasonCode: 0}, this.options.authPacket)
+      sendPacket(this, authPacket)
+    }
+  }
+
+  // many drain listeners are needed for qos 1 callbacks if the connection is intermittent
+  this.stream.setMaxListeners(1000)
+
+  clearTimeout(this.connackTimer)
+  this.connackTimer = setTimeout(function () {
+    that._cleanUp(true)
+  }, this.options.connectTimeout)
+}
+
+MqttClient.prototype._handlePacket = function (packet, done) {
+  var options = this.options
+
+  if (options.protocolVersion === 5 && options.properties && options.properties.maximumPacketSize && options.properties.maximumPacketSize < packet.length) {
+    this.emit('error', new Error('exceeding packets size ' + packet.cmd))
+    this.end({reasonCode: 149, properties: { reasonString: 'Maximum packet size was exceeded' }})
+    return this
+  }
+
+  this.emit('packetreceive', packet)
+
+  switch (packet.cmd) {
+    case 'publish':
+      this._handlePublish(packet, done)
+      break
+    case 'puback':
+    case 'pubrec':
+    case 'pubcomp':
+    case 'suback':
+    case 'unsuback':
+      this._handleAck(packet)
+      done()
+      break
+    case 'pubrel':
+      this._handlePubrel(packet, done)
+      break
+    case 'connack':
+      this._handleConnack(packet)
+      done()
+      break
+    case 'pingresp':
+      this._handlePingresp(packet)
+      done()
+      break
+    case 'disconnect':
+      this._handleDisconnect(packet)
+      done()
+      break
+    default:
+      // do nothing
+      // maybe we should do an error handling
+      // or just log it
+      break
+  }
+}
+
+MqttClient.prototype._checkDisconnecting = function (callback) {
+  if (this.disconnecting) {
+    if (callback) {
+      callback(new Error('client disconnecting'))
+    } else {
+      this.emit('error', new Error('client disconnecting'))
+    }
+  }
+  return this.disconnecting
+}
+
+/**
+ * publish - publish <message> to <topic>
+ *
+ * @param {String} topic - topic to publish to
+ * @param {String, Buffer} message - message to publish
+ * @param {Object} [opts] - publish options, includes:
+ *    {Number} qos - qos level to publish on
+ *    {Boolean} retain - whether or not to retain the message
+ *    {Boolean} dup - whether or not mark a message as duplicate
+ *    {Function} cbStorePut - function(){} called when message is put into `outgoingStore`
+ * @param {Function} [callback] - function(err){}
+ *    called when publish succeeds or fails
+ * @returns {MqttClient} this - for chaining
+ * @api public
+ *
+ * @example client.publish('topic', 'message');
+ * @example
+ *     client.publish('topic', 'message', {qos: 1, retain: true, dup: true});
+ * @example client.publish('topic', 'message', console.log);
+ */
+MqttClient.prototype.publish = function (topic, message, opts, callback) {
+  var packet
+  var options = this.options
+
+  // .publish(topic, payload, cb);
+  if (typeof opts === 'function') {
+    callback = opts
+    opts = null
+  }
+
+  // default opts
+  var defaultOpts = {qos: 0, retain: false, dup: false}
+  opts = xtend(defaultOpts, opts)
+
+  if (this._checkDisconnecting(callback)) {
+    return this
+  }
+
+  packet = {
+    cmd: 'publish',
+    topic: topic,
+    payload: message,
+    qos: opts.qos,
+    retain: opts.retain,
+    messageId: this._nextId(),
+    dup: opts.dup
+  }
+
+  if (options.protocolVersion === 5) {
+    packet.properties = opts.properties
+    if ((!options.properties && packet.properties && packet.properties.topicAlias) || ((opts.properties && options.properties) &&
+      ((opts.properties.topicAlias && options.properties.topicAliasMaximum && opts.properties.topicAlias > options.properties.topicAliasMaximum) ||
+        (!options.properties.topicAliasMaximum && opts.properties.topicAlias)))) {
+      /*
+      if we are don`t setup topic alias or
+      topic alias maximum less than topic alias or
+      server don`t give topic alias maximum,
+      we are removing topic alias from packet
+      */
+      delete packet.properties.topicAlias
+    }
+  }
+
+  switch (opts.qos) {
+    case 1:
+    case 2:
+      // Add to callbacks
+      this.outgoing[packet.messageId] = {
+        volatile: false,
+        cb: callback || nop
+      }
+      if (this._storeProcessing) {
+        this._packetIdsDuringStoreProcessing[packet.messageId] = false
+        this._storePacket(packet, undefined, opts.cbStorePut)
+      } else {
+        this._sendPacket(packet, undefined, opts.cbStorePut)
+      }
+      break
+    default:
+      if (this._storeProcessing) {
+        this._storePacket(packet, callback, opts.cbStorePut)
+      } else {
+        this._sendPacket(packet, callback, opts.cbStorePut)
+      }
+      break
+  }
+
+  return this
+}
+
+/**
+ * subscribe - subscribe to <topic>
+ *
+ * @param {String, Array, Object} topic - topic(s) to subscribe to, supports objects in the form {'topic': qos}
+ * @param {Object} [opts] - optional subscription options, includes:
+ *    {Number} qos - subscribe qos level
+ * @param {Function} [callback] - function(err, granted){} where:
+ *    {Error} err - subscription error (none at the moment!)
+ *    {Array} granted - array of {topic: 't', qos: 0}
+ * @returns {MqttClient} this - for chaining
+ * @api public
+ * @example client.subscribe('topic');
+ * @example client.subscribe('topic', {qos: 1});
+ * @example client.subscribe({'topic': {qos: 0}, 'topic2': {qos: 1}}, console.log);
+ * @example client.subscribe('topic', console.log);
+ */
+MqttClient.prototype.subscribe = function () {
+  var packet
+  var args = new Array(arguments.length)
+  for (var i = 0; i < arguments.length; i++) {
+    args[i] = arguments[i]
+  }
+  var subs = []
+  var obj = args.shift()
+  var resubscribe = obj.resubscribe
+  var callback = args.pop() || nop
+  var opts = args.pop()
+  var invalidTopic
+  var that = this
+  var version = this.options.protocolVersion
+
+  delete obj.resubscribe
+
+  if (typeof obj === 'string') {
+    obj = [obj]
+  }
+
+  if (typeof callback !== 'function') {
+    opts = callback
+    callback = nop
+  }
+
+  invalidTopic = validations.validateTopics(obj)
+  if (invalidTopic !== null) {
+    setImmediate(callback, new Error('Invalid topic ' + invalidTopic))
+    return this
+  }
+
+  if (this._checkDisconnecting(callback)) {
+    return this
+  }
+
+  var defaultOpts = {
+    qos: 0
+  }
+  if (version === 5) {
+    defaultOpts.nl = false
+    defaultOpts.rap = false
+    defaultOpts.rh = 0
+  }
+  opts = xtend(defaultOpts, opts)
+
+  if (Array.isArray(obj)) {
+    obj.forEach(function (topic) {
+      if (!that._resubscribeTopics.hasOwnProperty(topic) ||
+        that._resubscribeTopics[topic].qos < opts.qos ||
+          resubscribe) {
+        var currentOpts = {
+          topic: topic,
+          qos: opts.qos
+        }
+        if (version === 5) {
+          currentOpts.nl = opts.nl
+          currentOpts.rap = opts.rap
+          currentOpts.rh = opts.rh
+          currentOpts.properties = opts.properties
+        }
+        subs.push(currentOpts)
+      }
+    })
+  } else {
+    Object
+      .keys(obj)
+      .forEach(function (k) {
+        if (!that._resubscribeTopics.hasOwnProperty(k) ||
+          that._resubscribeTopics[k].qos < obj[k].qos ||
+            resubscribe) {
+          var currentOpts = {
+            topic: k,
+            qos: obj[k].qos
+          }
+          if (version === 5) {
+            currentOpts.nl = obj[k].nl
+            currentOpts.rap = obj[k].rap
+            currentOpts.rh = obj[k].rh
+            currentOpts.properties = opts.properties
+          }
+          subs.push(currentOpts)
+        }
+      })
+  }
+
+  packet = {
+    cmd: 'subscribe',
+    subscriptions: subs,
+    qos: 1,
+    retain: false,
+    dup: false,
+    messageId: this._nextId()
+  }
+
+  if (opts.properties) {
+    packet.properties = opts.properties
+  }
+
+  if (!subs.length) {
+    callback(null, [])
+    return
+  }
+
+  // subscriptions to resubscribe to in case of disconnect
+  if (this.options.resubscribe) {
+    var topics = []
+    subs.forEach(function (sub) {
+      if (that.options.reconnectPeriod > 0) {
+        var topic = { qos: sub.qos }
+        if (version === 5) {
+          topic.nl = sub.nl || false
+          topic.rap = sub.rap || false
+          topic.rh = sub.rh || 0
+          topic.properties = sub.properties
+        }
+        that._resubscribeTopics[sub.topic] = topic
+        topics.push(sub.topic)
+      }
+    })
+    that.messageIdToTopic[packet.messageId] = topics
+  }
+
+  this.outgoing[packet.messageId] = {
+    volatile: true,
+    cb: function (err, packet) {
+      if (!err) {
+        var granted = packet.granted
+        for (var i = 0; i < granted.length; i += 1) {
+          subs[i].qos = granted[i]
+        }
+      }
+
+      callback(err, subs)
+    }
+  }
+
+  this._sendPacket(packet)
+
+  return this
+}
+
+/**
+ * unsubscribe - unsubscribe from topic(s)
+ *
+ * @param {String, Array} topic - topics to unsubscribe from
+ * @param {Object} [opts] - optional subscription options, includes:
+ *    {Object} properties - properties of unsubscribe packet
+ * @param {Function} [callback] - callback fired on unsuback
+ * @returns {MqttClient} this - for chaining
+ * @api public
+ * @example client.unsubscribe('topic');
+ * @example client.unsubscribe('topic', console.log);
+ */
+MqttClient.prototype.unsubscribe = function () {
+  var packet = {
+    cmd: 'unsubscribe',
+    qos: 1,
+    messageId: this._nextId()
+  }
+  var that = this
+  var args = new Array(arguments.length)
+  for (var i = 0; i < arguments.length; i++) {
+    args[i] = arguments[i]
+  }
+  var topic = args.shift()
+  var callback = args.pop() || nop
+  var opts = args.pop()
+
+  if (typeof topic === 'string') {
+    topic = [topic]
+  }
+
+  if (typeof callback !== 'function') {
+    opts = callback
+    callback = nop
+  }
+
+  if (this._checkDisconnecting(callback)) {
+    return this
+  }
+
+  if (typeof topic === 'string') {
+    packet.unsubscriptions = [topic]
+  } else if (typeof topic === 'object' && topic.length) {
+    packet.unsubscriptions = topic
+  }
+
+  if (this.options.resubscribe) {
+    packet.unsubscriptions.forEach(function (topic) {
+      delete that._resubscribeTopics[topic]
+    })
+  }
+
+  if (typeof opts === 'object' && opts.properties) {
+    packet.properties = opts.properties
+  }
+
+  this.outgoing[packet.messageId] = {
+    volatile: true,
+    cb: callback
+  }
+
+  this._sendPacket(packet)
+
+  return this
+}
+
+/**
+ * end - close connection
+ *
+ * @returns {MqttClient} this - for chaining
+ * @param {Boolean} force - do not wait for all in-flight messages to be acked
+ * @param {Function} cb - called when the client has been closed
+ *
+ * @api public
+ */
+MqttClient.prototype.end = function () {
+  var that = this
+
+  var force = arguments[0]
+  var opts = arguments[1]
+  var cb = arguments[2]
+
+  if (force == null || typeof force !== 'boolean') {
+    cb = opts || nop
+    opts = force
+    force = false
+    if (typeof opts !== 'object') {
+      cb = opts
+      opts = null
+      if (typeof cb !== 'function') {
+        cb = nop
+      }
+    }
+  }
+
+  if (typeof opts !== 'object') {
+    cb = opts
+    opts = null
+  }
+
+  cb = cb || nop
+
+  function closeStores () {
+    that.disconnected = true
+    that.incomingStore.close(function () {
+      that.outgoingStore.close(function () {
+        if (cb) {
+          cb.apply(null, arguments)
+        }
+        that.emit('end')
+      })
+    })
+    if (that._deferredReconnect) {
+      that._deferredReconnect()
+    }
+  }
+
+  function finish () {
+    // defer closesStores of an I/O cycle,
+    // just to make sure things are
+    // ok for websockets
+    that._cleanUp(force, setImmediate.bind(null, closeStores), opts)
+  }
+
+  if (this.disconnecting) {
+    return this
+  }
+
+  this._clearReconnect()
+
+  this.disconnecting = true
+
+  if (!force && Object.keys(this.outgoing).length > 0) {
+    // wait 10ms, just to be sure we received all of it
+    this.once('outgoingEmpty', setTimeout.bind(null, finish, 10))
+  } else {
+    finish()
+  }
+
+  return this
+}
+
+/**
+ * removeOutgoingMessage - remove a message in outgoing store
+ * the outgoing callback will be called withe Error('Message removed') if the message is removed
+ *
+ * @param {Number} mid - messageId to remove message
+ * @returns {MqttClient} this - for chaining
+ * @api public
+ *
+ * @example client.removeOutgoingMessage(client.getLastMessageId());
+ */
+MqttClient.prototype.removeOutgoingMessage = function (mid) {
+  var cb = this.outgoing[mid] ? this.outgoing[mid].cb : null
+  delete this.outgoing[mid]
+  this.outgoingStore.del({messageId: mid}, function () {
+    cb(new Error('Message removed'))
+  })
+  return this
+}
+
+/**
+ * reconnect - connect again using the same options as connect()
+ *
+ * @param {Object} [opts] - optional reconnect options, includes:
+ *    {Store} incomingStore - a store for the incoming packets
+ *    {Store} outgoingStore - a store for the outgoing packets
+ *    if opts is not given, current stores are used
+ * @returns {MqttClient} this - for chaining
+ *
+ * @api public
+ */
+MqttClient.prototype.reconnect = function (opts) {
+  var that = this
+  var f = function () {
+    if (opts) {
+      that.options.incomingStore = opts.incomingStore
+      that.options.outgoingStore = opts.outgoingStore
+    } else {
+      that.options.incomingStore = null
+      that.options.outgoingStore = null
+    }
+    that.incomingStore = that.options.incomingStore || new Store()
+    that.outgoingStore = that.options.outgoingStore || new Store()
+    that.disconnecting = false
+    that.disconnected = false
+    that._deferredReconnect = null
+    that._reconnect()
+  }
+
+  if (this.disconnecting && !this.disconnected) {
+    this._deferredReconnect = f
+  } else {
+    f()
+  }
+  return this
+}
+
+/**
+ * _reconnect - implement reconnection
+ * @api privateish
+ */
+MqttClient.prototype._reconnect = function () {
+  this.emit('reconnect')
+  this._setupStream()
+}
+
+/**
+ * _setupReconnect - setup reconnect timer
+ */
+MqttClient.prototype._setupReconnect = function () {
+  var that = this
+
+  if (!that.disconnecting && !that.reconnectTimer && (that.options.reconnectPeriod > 0)) {
+    if (!this.reconnecting) {
+      this.emit('offline')
+      this.reconnecting = true
+    }
+    that.reconnectTimer = setInterval(function () {
+      that._reconnect()
+    }, that.options.reconnectPeriod)
+  }
+}
+
+/**
+ * _clearReconnect - clear the reconnect timer
+ */
+MqttClient.prototype._clearReconnect = function () {
+  if (this.reconnectTimer) {
+    clearInterval(this.reconnectTimer)
+    this.reconnectTimer = null
+  }
+}
+
+/**
+ * _cleanUp - clean up on connection end
+ * @api private
+ */
+MqttClient.prototype._cleanUp = function (forced, done) {
+  var opts = arguments[2]
+  if (done) {
+    this.stream.on('close', done)
+  }
+
+  if (forced) {
+    if ((this.options.reconnectPeriod === 0) && this.options.clean) {
+      flush(this.outgoing)
+    }
+    this.stream.destroy()
+  } else {
+    var packet = xtend({ cmd: 'disconnect' }, opts)
+    this._sendPacket(
+      packet,
+      setImmediate.bind(
+        null,
+        this.stream.end.bind(this.stream)
+      )
+    )
+  }
+
+  if (!this.disconnecting) {
+    this._clearReconnect()
+    this._setupReconnect()
+  }
+
+  if (this.pingTimer !== null) {
+    this.pingTimer.clear()
+    this.pingTimer = null
+  }
+
+  if (done && !this.connected) {
+    this.stream.removeListener('close', done)
+    done()
+  }
+}
+
+/**
+ * _sendPacket - send or queue a packet
+ * @param {String} type - packet type (see `protocol`)
+ * @param {Object} packet - packet options
+ * @param {Function} cb - callback when the packet is sent
+ * @param {Function} cbStorePut - called when message is put into outgoingStore
+ * @api private
+ */
+MqttClient.prototype._sendPacket = function (packet, cb, cbStorePut) {
+  cbStorePut = cbStorePut || nop
+
+  if (!this.connected) {
+    this._storePacket(packet, cb, cbStorePut)
+    return
+  }
+
+  // When sending a packet, reschedule the ping timer
+  this._shiftPingInterval()
+
+  switch (packet.cmd) {
+    case 'publish':
+      break
+    case 'pubrel':
+      storeAndSend(this, packet, cb, cbStorePut)
+      return
+    default:
+      sendPacket(this, packet, cb)
+      return
+  }
+
+  switch (packet.qos) {
+    case 2:
+    case 1:
+      storeAndSend(this, packet, cb, cbStorePut)
+      break
+    /**
+     * no need of case here since it will be caught by default
+     * and jshint comply that before default it must be a break
+     * anyway it will result in -1 evaluation
+     */
+    case 0:
+      /* falls through */
+    default:
+      sendPacket(this, packet, cb)
+      break
+  }
+}
+
+/**
+ * _storePacket - queue a packet
+ * @param {String} type - packet type (see `protocol`)
+ * @param {Object} packet - packet options
+ * @param {Function} cb - callback when the packet is sent
+ * @param {Function} cbStorePut - called when message is put into outgoingStore
+ * @api private
+ */
+MqttClient.prototype._storePacket = function (packet, cb, cbStorePut) {
+  cbStorePut = cbStorePut || nop
+
+  if (((packet.qos || 0) === 0 && this.queueQoSZero) || packet.cmd !== 'publish') {
+    this.queue.push({ packet: packet, cb: cb })
+  } else if (packet.qos > 0) {
+    cb = this.outgoing[packet.messageId] ? this.outgoing[packet.messageId].cb : null
+    this.outgoingStore.put(packet, function (err) {
+      if (err) {
+        return cb && cb(err)
+      }
+      cbStorePut()
+    })
+  } else if (cb) {
+    cb(new Error('No connection to broker'))
+  }
+}
+
+/**
+ * _setupPingTimer - setup the ping timer
+ *
+ * @api private
+ */
+MqttClient.prototype._setupPingTimer = function () {
+  var that = this
+
+  if (!this.pingTimer && this.options.keepalive) {
+    this.pingResp = true
+    this.pingTimer = reInterval(function () {
+      that._checkPing()
+    }, this.options.keepalive * 1000)
+  }
+}
+
+/**
+ * _shiftPingInterval - reschedule the ping interval
+ *
+ * @api private
+ */
+MqttClient.prototype._shiftPingInterval = function () {
+  if (this.pingTimer && this.options.keepalive && this.options.reschedulePings) {
+    this.pingTimer.reschedule(this.options.keepalive * 1000)
+  }
+}
+/**
+ * _checkPing - check if a pingresp has come back, and ping the server again
+ *
+ * @api private
+ */
+MqttClient.prototype._checkPing = function () {
+  if (this.pingResp) {
+    this.pingResp = false
+    this._sendPacket({ cmd: 'pingreq' })
+  } else {
+    // do a forced cleanup since socket will be in bad shape
+    this._cleanUp(true)
+  }
+}
+
+/**
+ * _handlePingresp - handle a pingresp
+ *
+ * @api private
+ */
+MqttClient.prototype._handlePingresp = function () {
+  this.pingResp = true
+}
+
+/**
+ * _handleConnack
+ *
+ * @param {Object} packet
+ * @api private
+ */
+
+MqttClient.prototype._handleConnack = function (packet) {
+  var options = this.options
+  var version = options.protocolVersion
+  var rc = version === 5 ? packet.reasonCode : packet.returnCode
+
+  clearTimeout(this.connackTimer)
+
+  if (packet.properties) {
+    if (packet.properties.topicAliasMaximum) {
+      if (!options.properties) { options.properties = {} }
+      options.properties.topicAliasMaximum = packet.properties.topicAliasMaximum
+    }
+    if (packet.properties.serverKeepAlive && options.keepalive) {
+      options.keepalive = packet.properties.serverKeepAlive
+      this._shiftPingInterval()
+    }
+    if (packet.properties.maximumPacketSize) {
+      if (!options.properties) { options.properties = {} }
+      options.properties.maximumPacketSize = packet.properties.maximumPacketSize
+    }
+  }
+
+  if (rc === 0) {
+    this.reconnecting = false
+    this._onConnect(packet)
+  } else if (rc > 0) {
+    var err = new Error('Connection refused: ' + errors[rc])
+    err.code = rc
+    this.emit('error', err)
+  }
+}
+
+/**
+ * _handlePublish
+ *
+ * @param {Object} packet
+ * @api private
+ */
+/*
+those late 2 case should be rewrite to comply with coding style:
+
+case 1:
+case 0:
+  // do not wait sending a puback
+  // no callback passed
+  if (1 === qos) {
+    this._sendPacket({
+      cmd: 'puback',
+      messageId: mid
+    });
+  }
+  // emit the message event for both qos 1 and 0
+  this.emit('message', topic, message, packet);
+  this.handleMessage(packet, done);
+  break;
+default:
+  // do nothing but every switch mus have a default
+  // log or throw an error about unknown qos
+  break;
+
+for now i just suppressed the warnings
+*/
+MqttClient.prototype._handlePublish = function (packet, done) {
+  done = typeof done !== 'undefined' ? done : nop
+  var topic = packet.topic.toString()
+  var message = packet.payload
+  var qos = packet.qos
+  var mid = packet.messageId
+  var that = this
+  var options = this.options
+  var validReasonCodes = [0, 16, 128, 131, 135, 144, 145, 151, 153]
+
+  switch (qos) {
+    case 2: {
+      options.customHandleAcks(topic, message, packet, function (error, code) {
+        if (!(error instanceof Error)) {
+          code = error
+          error = null
+        }
+        if (error) { return that.emit('error', error) }
+        if (validReasonCodes.indexOf(code) === -1) { return that.emit('error', new Error('Wrong reason code for pubrec')) }
+        if (code) {
+          that._sendPacket({cmd: 'pubrec', messageId: mid, reasonCode: code}, done)
+        } else {
+          that.incomingStore.put(packet, function () {
+            that._sendPacket({cmd: 'pubrec', messageId: mid}, done)
+          })
+        }
+      })
+      break
+    }
+    case 1: {
+      // emit the message event
+      options.customHandleAcks(topic, message, packet, function (error, code) {
+        if (!(error instanceof Error)) {
+          code = error
+          error = null
+        }
+        if (error) { return that.emit('error', error) }
+        if (validReasonCodes.indexOf(code) === -1) { return that.emit('error', new Error('Wrong reason code for puback')) }
+        if (!code) { that.emit('message', topic, message, packet) }
+        that.handleMessage(packet, function (err) {
+          if (err) {
+            return done && done(err)
+          }
+          that._sendPacket({cmd: 'puback', messageId: mid, reasonCode: code}, done)
+        })
+      })
+      break
+    }
+    case 0:
+      // emit the message event
+      this.emit('message', topic, message, packet)
+      this.handleMessage(packet, done)
+      break
+    default:
+      // do nothing
+      // log or throw an error about unknown qos
+      break
+  }
+}
+
+/**
+ * Handle messages with backpressure support, one at a time.
+ * Override at will.
+ *
+ * @param Packet packet the packet
+ * @param Function callback call when finished
+ * @api public
+ */
+MqttClient.prototype.handleMessage = function (packet, callback) {
+  callback()
+}
+
+/**
+ * _handleAck
+ *
+ * @param {Object} packet
+ * @api private
+ */
+
+MqttClient.prototype._handleAck = function (packet) {
+  /* eslint no-fallthrough: "off" */
+  var mid = packet.messageId
+  var type = packet.cmd
+  var response = null
+  var cb = this.outgoing[mid] ? this.outgoing[mid].cb : null
+  var that = this
+  var err
+
+  if (!cb) {
+    // Server sent an ack in error, ignore it.
+    return
+  }
+
+  // Process
+  switch (type) {
+    case 'pubcomp':
+      // same thing as puback for QoS 2
+    case 'puback':
+      var pubackRC = packet.reasonCode
+      // Callback - we're done
+      if (pubackRC && pubackRC > 0 && pubackRC !== 16) {
+        err = new Error('Publish error: ' + errors[pubackRC])
+        err.code = pubackRC
+        cb(err, packet)
+      }
+      delete this.outgoing[mid]
+      this.outgoingStore.del(packet, cb)
+      break
+    case 'pubrec':
+      response = {
+        cmd: 'pubrel',
+        qos: 2,
+        messageId: mid
+      }
+      var pubrecRC = packet.reasonCode
+
+      if (pubrecRC && pubrecRC > 0 && pubrecRC !== 16) {
+        err = new Error('Publish error: ' + errors[pubrecRC])
+        err.code = pubrecRC
+        cb(err, packet)
+      } else {
+        this._sendPacket(response)
+      }
+      break
+    case 'suback':
+      delete this.outgoing[mid]
+      for (var grantedI = 0; grantedI < packet.granted.length; grantedI++) {
+        if ((packet.granted[grantedI] & 0x80) !== 0) {
+          // suback with Failure status
+          var topics = this.messageIdToTopic[mid]
+          if (topics) {
+            topics.forEach(function (topic) {
+              delete that._resubscribeTopics[topic]
+            })
+          }
+        }
+      }
+      cb(null, packet)
+      break
+    case 'unsuback':
+      delete this.outgoing[mid]
+      cb(null)
+      break
+    default:
+      that.emit('error', new Error('unrecognized packet type'))
+  }
+
+  if (this.disconnecting &&
+      Object.keys(this.outgoing).length === 0) {
+    this.emit('outgoingEmpty')
+  }
+}
+
+/**
+ * _handlePubrel
+ *
+ * @param {Object} packet
+ * @api private
+ */
+MqttClient.prototype._handlePubrel = function (packet, callback) {
+  callback = typeof callback !== 'undefined' ? callback : nop
+  var mid = packet.messageId
+  var that = this
+
+  var comp = {cmd: 'pubcomp', messageId: mid}
+
+  that.incomingStore.get(packet, function (err, pub) {
+    if (!err) {
+      that.emit('message', pub.topic, pub.payload, pub)
+      that.handleMessage(pub, function (err) {
+        if (err) {
+          return callback(err)
+        }
+        that.incomingStore.del(pub, nop)
+        that._sendPacket(comp, callback)
+      })
+    } else {
+      that._sendPacket(comp, callback)
+    }
+  })
+}
+
+/**
+ * _handleDisconnect
+ *
+ * @param {Object} packet
+ * @api private
+ */
+MqttClient.prototype._handleDisconnect = function (packet) {
+  this.emit('disconnect', packet)
+}
+
+/**
+ * _nextId
+ * @return unsigned int
+ */
+MqttClient.prototype._nextId = function () {
+  // id becomes current state of this.nextId and increments afterwards
+  var id = this.nextId++
+  // Ensure 16 bit unsigned int (max 65535, nextId got one higher)
+  if (this.nextId === 65536) {
+    this.nextId = 1
+  }
+  return id
+}
+
+/**
+ * getLastMessageId
+ * @return unsigned int
+ */
+MqttClient.prototype.getLastMessageId = function () {
+  return (this.nextId === 1) ? 65535 : (this.nextId - 1)
+}
+
+/**
+ * _resubscribe
+ * @api private
+ */
+MqttClient.prototype._resubscribe = function (connack) {
+  var _resubscribeTopicsKeys = Object.keys(this._resubscribeTopics)
+  if (!this._firstConnection &&
+      (this.options.clean || (this.options.protocolVersion === 5 && !connack.sessionPresent)) &&
+      _resubscribeTopicsKeys.length > 0) {
+    if (this.options.resubscribe) {
+      if (this.options.protocolVersion === 5) {
+        for (var topicI = 0; topicI < _resubscribeTopicsKeys.length; topicI++) {
+          var resubscribeTopic = {}
+          resubscribeTopic[_resubscribeTopicsKeys[topicI]] = this._resubscribeTopics[_resubscribeTopicsKeys[topicI]]
+          resubscribeTopic.resubscribe = true
+          this.subscribe(resubscribeTopic, {properties: resubscribeTopic[_resubscribeTopicsKeys[topicI]].properties})
+        }
+      } else {
+        this._resubscribeTopics.resubscribe = true
+        this.subscribe(this._resubscribeTopics)
+      }
+    } else {
+      this._resubscribeTopics = {}
+    }
+  }
+
+  this._firstConnection = false
+}
+
+/**
+ * _onConnect
+ *
+ * @api private
+ */
+MqttClient.prototype._onConnect = function (packet) {
+  if (this.disconnected) {
+    this.emit('connect', packet)
+    return
+  }
+
+  var that = this
+
+  this._setupPingTimer()
+  this._resubscribe(packet)
+
+  this.connected = true
+
+  function startStreamProcess () {
+    var outStore = that.outgoingStore.createStream()
+
+    function clearStoreProcessing () {
+      that._storeProcessing = false
+      that._packetIdsDuringStoreProcessing = {}
+    }
+
+    that.once('close', remove)
+    outStore.on('error', function (err) {
+      clearStoreProcessing()
+      that.removeListener('close', remove)
+      that.emit('error', err)
+    })
+
+    function remove () {
+      outStore.destroy()
+      outStore = null
+      clearStoreProcessing()
+    }
+
+    function storeDeliver () {
+      // edge case, we wrapped this twice
+      if (!outStore) {
+        return
+      }
+      that._storeProcessing = true
+
+      var packet = outStore.read(1)
+
+      var cb
+
+      if (!packet) {
+        // read when data is available in the future
+        outStore.once('readable', storeDeliver)
+        return
+      }
+
+      // Skip already processed store packets
+      if (that._packetIdsDuringStoreProcessing[packet.messageId]) {
+        storeDeliver()
+        return
+      }
+
+      // Avoid unnecessary stream read operations when disconnected
+      if (!that.disconnecting && !that.reconnectTimer) {
+        cb = that.outgoing[packet.messageId] ? that.outgoing[packet.messageId].cb : null
+        that.outgoing[packet.messageId] = {
+          volatile: false,
+          cb: function (err, status) {
+            // Ensure that the original callback passed in to publish gets invoked
+            if (cb) {
+              cb(err, status)
+            }
+
+            storeDeliver()
+          }
+        }
+        that._packetIdsDuringStoreProcessing[packet.messageId] = true
+        that._sendPacket(packet)
+      } else if (outStore.destroy) {
+        outStore.destroy()
+      }
+    }
+
+    outStore.on('end', function () {
+      var allProcessed = true
+      for (var id in that._packetIdsDuringStoreProcessing) {
+        if (!that._packetIdsDuringStoreProcessing[id]) {
+          allProcessed = false
+          break
+        }
+      }
+      if (allProcessed) {
+        clearStoreProcessing()
+        that.removeListener('close', remove)
+        that.emit('connect', packet)
+      } else {
+        startStreamProcess()
+      }
+    })
+    storeDeliver()
+  }
+  // start flowing
+  startStreamProcess()
+}
+
+module.exports = MqttClient
+
+}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"./store":218,"./validations":219,"_process":233,"events":180,"inherits":197,"mqtt-packet":206,"readable-stream":261,"reinterval":264,"xtend":288}],212:[function(require,module,exports){
+(function (Buffer){
+'use strict'
+
+var Transform = require('readable-stream').Transform
+var duplexify = require('duplexify')
+var base64 = require('base64-js')
+
+/* global FileReader */
+var my
+var proxy
+var stream
+var isInitialized = false
+
+function buildProxy () {
+  var proxy = new Transform()
+  proxy._write = function (chunk, encoding, next) {
+    my.sendSocketMessage({
+      data: chunk.buffer,
+      success: function () {
+        next()
+      },
+      fail: function () {
+        next(new Error())
+      }
+    })
+  }
+  proxy._flush = function socketEnd (done) {
+    my.closeSocket({
+      success: function () {
+        done()
+      }
+    })
+  }
+
+  return proxy
+}
+
+function setDefaultOpts (opts) {
+  if (!opts.hostname) {
+    opts.hostname = 'localhost'
+  }
+  if (!opts.path) {
+    opts.path = '/'
+  }
+
+  if (!opts.wsOptions) {
+    opts.wsOptions = {}
+  }
+}
+
+function buildUrl (opts, client) {
+  var protocol = opts.protocol === 'alis' ? 'wss' : 'ws'
+  var url = protocol + '://' + opts.hostname + opts.path
+  if (opts.port && opts.port !== 80 && opts.port !== 443) {
+    url = protocol + '://' + opts.hostname + ':' + opts.port + opts.path
+  }
+  if (typeof (opts.transformWsUrl) === 'function') {
+    url = opts.transformWsUrl(url, opts, client)
+  }
+  return url
+}
+
+function bindEventHandler () {
+  if (isInitialized) return
+
+  isInitialized = true
+
+  my.onSocketOpen(function () {
+    stream.setReadable(proxy)
+    stream.setWritable(proxy)
+    stream.emit('connect')
+  })
+
+  my.onSocketMessage(function (res) {
+    if (typeof res.data === 'string') {
+      var array = base64.toByteArray(res.data)
+      var buffer = Buffer.from(array)
+      proxy.push(buffer)
+    } else {
+      var reader = new FileReader()
+      reader.addEventListener('load', function () {
+        var data = reader.result
+
+        if (data instanceof ArrayBuffer) data = Buffer.from(data)
+        else data = Buffer.from(data, 'utf8')
+        proxy.push(data)
+      })
+      reader.readAsArrayBuffer(res.data)
+    }
+  })
+
+  my.onSocketClose(function () {
+    stream.end()
+    stream.destroy()
+  })
+
+  my.onSocketError(function (res) {
+    stream.destroy(res)
+  })
+}
+
+function buildStream (client, opts) {
+  opts.hostname = opts.hostname || opts.host
+
+  if (!opts.hostname) {
+    throw new Error('Could not determine host. Specify host manually.')
+  }
+
+  var websocketSubProtocol =
+    (opts.protocolId === 'MQIsdp') && (opts.protocolVersion === 3)
+      ? 'mqttv3.1'
+      : 'mqtt'
+
+  setDefaultOpts(opts)
+
+  var url = buildUrl(opts, client)
+  my = opts.my
+  my.connectSocket({
+    url: url,
+    protocols: websocketSubProtocol
+  })
+
+  proxy = buildProxy()
+  stream = duplexify.obj()
+
+  bindEventHandler()
+
+  return stream
+}
+
+module.exports = buildStream
+
+}).call(this,require("buffer").Buffer)
+},{"base64-js":48,"buffer":81,"duplexify":102,"readable-stream":261}],213:[function(require,module,exports){
+(function (process){
+'use strict'
+
+var MqttClient = require('../client')
+var Store = require('../store')
+var url = require('url')
+var xtend = require('xtend')
+var protocols = {}
+
+if (process.title !== 'browser') {
+  protocols.mqtt = require('./tcp')
+  protocols.tcp = require('./tcp')
+  protocols.ssl = require('./tls')
+  protocols.tls = require('./tls')
+  protocols.mqtts = require('./tls')
+} else {
+  protocols.wx = require('./wx')
+  protocols.wxs = require('./wx')
+
+  protocols.ali = require('./ali')
+  protocols.alis = require('./ali')
+}
+
+protocols.ws = require('./ws')
+protocols.wss = require('./ws')
+
+/**
+ * Parse the auth attribute and merge username and password in the options object.
+ *
+ * @param {Object} [opts] option object
+ */
+function parseAuthOptions (opts) {
+  var matches
+  if (opts.auth) {
+    matches = opts.auth.match(/^(.+):(.+)$/)
+    if (matches) {
+      opts.username = matches[1]
+      opts.password = matches[2]
+    } else {
+      opts.username = opts.auth
+    }
+  }
+}
+
+/**
+ * connect - connect to an MQTT broker.
+ *
+ * @param {String} [brokerUrl] - url of the broker, optional
+ * @param {Object} opts - see MqttClient#constructor
+ */
+function connect (brokerUrl, opts) {
+  if ((typeof brokerUrl === 'object') && !opts) {
+    opts = brokerUrl
+    brokerUrl = null
+  }
+
+  opts = opts || {}
+
+  if (brokerUrl) {
+    var parsed = url.parse(brokerUrl, true)
+    if (parsed.port != null) {
+      parsed.port = Number(parsed.port)
+    }
+
+    opts = xtend(parsed, opts)
+
+    if (opts.protocol === null) {
+      throw new Error('Missing protocol')
+    }
+    opts.protocol = opts.protocol.replace(/:$/, '')
+  }
+
+  // merge in the auth options if supplied
+  parseAuthOptions(opts)
+
+  // support clientId passed in the query string of the url
+  if (opts.query && typeof opts.query.clientId === 'string') {
+    opts.clientId = opts.query.clientId
+  }
+
+  if (opts.cert && opts.key) {
+    if (opts.protocol) {
+      if (['mqtts', 'wss', 'wxs', 'alis'].indexOf(opts.protocol) === -1) {
+        switch (opts.protocol) {
+          case 'mqtt':
+            opts.protocol = 'mqtts'
+            break
+          case 'ws':
+            opts.protocol = 'wss'
+            break
+          case 'wx':
+            opts.protocol = 'wxs'
+            break
+          case 'ali':
+            opts.protocol = 'alis'
+            break
+          default:
+            throw new Error('Unknown protocol for secure connection: "' + opts.protocol + '"!')
+        }
+      }
+    } else {
+      // don't know what protocol he want to use, mqtts or wss
+      throw new Error('Missing secure protocol key')
+    }
+  }
+
+  if (!protocols[opts.protocol]) {
+    var isSecure = ['mqtts', 'wss'].indexOf(opts.protocol) !== -1
+    opts.protocol = [
+      'mqtt',
+      'mqtts',
+      'ws',
+      'wss',
+      'wx',
+      'wxs',
+      'ali',
+      'alis'
+    ].filter(function (key, index) {
+      if (isSecure && index % 2 === 0) {
+        // Skip insecure protocols when requesting a secure one.
+        return false
+      }
+      return (typeof protocols[key] === 'function')
+    })[0]
+  }
+
+  if (opts.clean === false && !opts.clientId) {
+    throw new Error('Missing clientId for unclean clients')
+  }
+
+  if (opts.protocol) {
+    opts.defaultProtocol = opts.protocol
+  }
+
+  function wrapper (client) {
+    if (opts.servers) {
+      if (!client._reconnectCount || client._reconnectCount === opts.servers.length) {
+        client._reconnectCount = 0
+      }
+
+      opts.host = opts.servers[client._reconnectCount].host
+      opts.port = opts.servers[client._reconnectCount].port
+      opts.protocol = (!opts.servers[client._reconnectCount].protocol ? opts.defaultProtocol : opts.servers[client._reconnectCount].protocol)
+      opts.hostname = opts.host
+
+      client._reconnectCount++
+    }
+
+    return protocols[opts.protocol](client, opts)
+  }
+
+  return new MqttClient(wrapper, opts)
+}
+
+module.exports = connect
+module.exports.connect = connect
+module.exports.MqttClient = MqttClient
+module.exports.Store = Store
+
+}).call(this,require('_process'))
+},{"../client":211,"../store":218,"./ali":212,"./tcp":214,"./tls":215,"./ws":216,"./wx":217,"_process":233,"url":279,"xtend":288}],214:[function(require,module,exports){
+'use strict'
+var net = require('net')
+
+/*
+  variables port and host can be removed since
+  you have all required information in opts object
+*/
+function buildBuilder (client, opts) {
+  var port, host
+  opts.port = opts.port || 1883
+  opts.hostname = opts.hostname || opts.host || 'localhost'
+
+  port = opts.port
+  host = opts.hostname
+
+  return net.createConnection(port, host)
+}
+
+module.exports = buildBuilder
+
+},{"net":52}],215:[function(require,module,exports){
+'use strict'
+var tls = require('tls')
+
+function buildBuilder (mqttClient, opts) {
+  var connection
+  opts.port = opts.port || 8883
+  opts.host = opts.hostname || opts.host || 'localhost'
+
+  opts.rejectUnauthorized = opts.rejectUnauthorized !== false
+
+  delete opts.path
+
+  connection = tls.connect(opts)
+  /* eslint no-use-before-define: [2, "nofunc"] */
+  connection.on('secureConnect', function () {
+    if (opts.rejectUnauthorized && !connection.authorized) {
+      connection.emit('error', new Error('TLS not authorized'))
+    } else {
+      connection.removeListener('error', handleTLSerrors)
+    }
+  })
+
+  function handleTLSerrors (err) {
+    // How can I get verify this error is a tls error?
+    if (opts.rejectUnauthorized) {
+      mqttClient.emit('error', err)
+    }
+
+    // close this connection to match the behaviour of net
+    // otherwise all we get is an error from the connection
+    // and close event doesn't fire. This is a work around
+    // to enable the reconnect code to work the same as with
+    // net.createConnection
+    connection.end()
+  }
+
+  connection.on('error', handleTLSerrors)
+  return connection
+}
+
+module.exports = buildBuilder
+
+},{"tls":52}],216:[function(require,module,exports){
+(function (process){
+'use strict'
+
+var websocket = require('websocket-stream')
+var urlModule = require('url')
+var WSS_OPTIONS = [
+  'rejectUnauthorized',
+  'ca',
+  'cert',
+  'key',
+  'pfx',
+  'passphrase'
+]
+var IS_BROWSER = process.title === 'browser'
+
+function buildUrl (opts, client) {
+  var url = opts.protocol + '://' + opts.hostname + ':' + opts.port + opts.path
+  if (typeof (opts.transformWsUrl) === 'function') {
+    url = opts.transformWsUrl(url, opts, client)
+  }
+  return url
+}
+
+function setDefaultOpts (opts) {
+  if (!opts.hostname) {
+    opts.hostname = 'localhost'
+  }
+  if (!opts.port) {
+    if (opts.protocol === 'wss') {
+      opts.port = 443
+    } else {
+      opts.port = 80
+    }
+  }
+  if (!opts.path) {
+    opts.path = '/'
+  }
+
+  if (!opts.wsOptions) {
+    opts.wsOptions = {}
+  }
+  if (!IS_BROWSER && opts.protocol === 'wss') {
+    // Add cert/key/ca etc options
+    WSS_OPTIONS.forEach(function (prop) {
+      if (opts.hasOwnProperty(prop) && !opts.wsOptions.hasOwnProperty(prop)) {
+        opts.wsOptions[prop] = opts[prop]
+      }
+    })
+  }
+}
+
+function createWebSocket (client, opts) {
+  var websocketSubProtocol =
+    (opts.protocolId === 'MQIsdp') && (opts.protocolVersion === 3)
+      ? 'mqttv3.1'
+      : 'mqtt'
+
+  setDefaultOpts(opts)
+  var url = buildUrl(opts, client)
+  return websocket(url, [websocketSubProtocol], opts.wsOptions)
+}
+
+function buildBuilder (client, opts) {
+  return createWebSocket(client, opts)
+}
+
+function buildBuilderBrowser (client, opts) {
+  if (!opts.hostname) {
+    opts.hostname = opts.host
+  }
+
+  if (!opts.hostname) {
+    // Throwing an error in a Web Worker if no `hostname` is given, because we
+    // can not determine the `hostname` automatically.  If connecting to
+    // localhost, please supply the `hostname` as an argument.
+    if (typeof (document) === 'undefined') {
+      throw new Error('Could not determine host. Specify host manually.')
+    }
+    var parsed = urlModule.parse(document.URL)
+    opts.hostname = parsed.hostname
+
+    if (!opts.port) {
+      opts.port = parsed.port
+    }
+  }
+  return createWebSocket(client, opts)
+}
+
+if (IS_BROWSER) {
+  module.exports = buildBuilderBrowser
+} else {
+  module.exports = buildBuilder
+}
+
+}).call(this,require('_process'))
+},{"_process":233,"url":279,"websocket-stream":285}],217:[function(require,module,exports){
+(function (process,Buffer){
+'use strict'
+
+var Transform = require('readable-stream').Transform
+var duplexify = require('duplexify')
+
+/* global wx */
+var socketTask
+var proxy
+var stream
+
+function buildProxy () {
+  var proxy = new Transform()
+  proxy._write = function (chunk, encoding, next) {
+    socketTask.send({
+      data: chunk.buffer,
+      success: function () {
+        next()
+      },
+      fail: function (errMsg) {
+        next(new Error(errMsg))
+      }
+    })
+  }
+  proxy._flush = function socketEnd (done) {
+    socketTask.close({
+      success: function () {
+        done()
+      }
+    })
+  }
+
+  return proxy
+}
+
+function setDefaultOpts (opts) {
+  if (!opts.hostname) {
+    opts.hostname = 'localhost'
+  }
+  if (!opts.path) {
+    opts.path = '/'
+  }
+
+  if (!opts.wsOptions) {
+    opts.wsOptions = {}
+  }
+}
+
+function buildUrl (opts, client) {
+  var protocol = opts.protocol === 'wxs' ? 'wss' : 'ws'
+  var url = protocol + '://' + opts.hostname + opts.path
+  if (opts.port && opts.port !== 80 && opts.port !== 443) {
+    url = protocol + '://' + opts.hostname + ':' + opts.port + opts.path
+  }
+  if (typeof (opts.transformWsUrl) === 'function') {
+    url = opts.transformWsUrl(url, opts, client)
+  }
+  return url
+}
+
+function bindEventHandler () {
+  socketTask.onOpen(function () {
+    stream.setReadable(proxy)
+    stream.setWritable(proxy)
+    stream.emit('connect')
+  })
+
+  socketTask.onMessage(function (res) {
+    var data = res.data
+
+    if (data instanceof ArrayBuffer) data = Buffer.from(data)
+    else data = Buffer.from(data, 'utf8')
+    proxy.push(data)
+  })
+
+  socketTask.onClose(function () {
+    stream.end()
+    stream.destroy()
+  })
+
+  socketTask.onError(function (res) {
+    stream.destroy(new Error(res.errMsg))
+  })
+}
+
+function buildStream (client, opts) {
+  opts.hostname = opts.hostname || opts.host
+
+  if (!opts.hostname) {
+    throw new Error('Could not determine host. Specify host manually.')
+  }
+
+  var websocketSubProtocol =
+    (opts.protocolId === 'MQIsdp') && (opts.protocolVersion === 3)
+      ? 'mqttv3.1'
+      : 'mqtt'
+
+  setDefaultOpts(opts)
+
+  var url = buildUrl(opts, client)
+  socketTask = wx.connectSocket({
+    url: url,
+    protocols: websocketSubProtocol
+  })
+
+  proxy = buildProxy()
+  stream = duplexify.obj()
+  stream._destroy = function (err, cb) {
+    socketTask.close({
+      success: function () {
+        cb && cb(err)
+      }
+    })
+  }
+
+  var destroyRef = stream.destroy
+  stream.destroy = function () {
+    stream.destroy = destroyRef
+
+    var self = this
+    process.nextTick(function () {
+      socketTask.close({
+        fail: function () {
+          self._destroy(new Error())
+        }
+      })
+    })
+  }.bind(stream)
+
+  bindEventHandler()
+
+  return stream
+}
+
+module.exports = buildStream
+
+}).call(this,require('_process'),require("buffer").Buffer)
+},{"_process":233,"buffer":81,"duplexify":102,"readable-stream":261}],218:[function(require,module,exports){
+(function (process){
+'use strict'
+
+/**
+ * Module dependencies
+ */
+var xtend = require('xtend')
+
+var Readable = require('readable-stream').Readable
+var streamsOpts = { objectMode: true }
+var defaultStoreOptions = {
+  clean: true
+}
+
+/**
+ * es6-map can preserve insertion order even if ES version is older.
+ *
+ * https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map#Description
+ * It should be noted that a Map which is a map of an object, especially
+ * a dictionary of dictionaries, will only map to the object's insertion
+ * order. In ES2015 this is ordered for objects but for older versions of
+ * ES, this may be random and not ordered.
+ *
+ */
+var Map = require('es6-map')
+
+/**
+ * In-memory implementation of the message store
+ * This can actually be saved into files.
+ *
+ * @param {Object} [options] - store options
+ */
+function Store (options) {
+  if (!(this instanceof Store)) {
+    return new Store(options)
+  }
+
+  this.options = options || {}
+
+  // Defaults
+  this.options = xtend(defaultStoreOptions, options)
+
+  this._inflights = new Map()
+}
+
+/**
+ * Adds a packet to the store, a packet is
+ * anything that has a messageId property.
+ *
+ */
+Store.prototype.put = function (packet, cb) {
+  this._inflights.set(packet.messageId, packet)
+
+  if (cb) {
+    cb()
+  }
+
+  return this
+}
+
+/**
+ * Creates a stream with all the packets in the store
+ *
+ */
+Store.prototype.createStream = function () {
+  var stream = new Readable(streamsOpts)
+  var destroyed = false
+  var values = []
+  var i = 0
+
+  this._inflights.forEach(function (value, key) {
+    values.push(value)
+  })
+
+  stream._read = function () {
+    if (!destroyed && i < values.length) {
+      this.push(values[i++])
+    } else {
+      this.push(null)
+    }
+  }
+
+  stream.destroy = function () {
+    if (destroyed) {
+      return
+    }
+
+    var self = this
+
+    destroyed = true
+
+    process.nextTick(function () {
+      self.emit('close')
+    })
+  }
+
+  return stream
+}
+
+/**
+ * deletes a packet from the store.
+ */
+Store.prototype.del = function (packet, cb) {
+  packet = this._inflights.get(packet.messageId)
+  if (packet) {
+    this._inflights.delete(packet.messageId)
+    cb(null, packet)
+  } else if (cb) {
+    cb(new Error('missing packet'))
+  }
+
+  return this
+}
+
+/**
+ * get a packet from the store.
+ */
+Store.prototype.get = function (packet, cb) {
+  packet = this._inflights.get(packet.messageId)
+  if (packet) {
+    cb(null, packet)
+  } else if (cb) {
+    cb(new Error('missing packet'))
+  }
+
+  return this
+}
+
+/**
+ * Close the store
+ */
+Store.prototype.close = function (cb) {
+  if (this.options.clean) {
+    this._inflights = null
+  }
+  if (cb) {
+    cb()
+  }
+}
+
+module.exports = Store
+
+}).call(this,require('_process'))
+},{"_process":233,"es6-map":168,"readable-stream":261,"xtend":288}],219:[function(require,module,exports){
+'use strict'
+
+/**
+ * Validate a topic to see if it's valid or not.
+ * A topic is valid if it follow below rules:
+ * - Rule #1: If any part of the topic is not `+` or `#`, then it must not contain `+` and '#'
+ * - Rule #2: Part `#` must be located at the end of the mailbox
+ *
+ * @param {String} topic - A topic
+ * @returns {Boolean} If the topic is valid, returns true. Otherwise, returns false.
+ */
+function validateTopic (topic) {
+  var parts = topic.split('/')
+
+  for (var i = 0; i < parts.length; i++) {
+    if (parts[i] === '+') {
+      continue
+    }
+
+    if (parts[i] === '#') {
+      // for Rule #2
+      return i === parts.length - 1
+    }
+
+    if (parts[i].indexOf('+') !== -1 || parts[i].indexOf('#') !== -1) {
+      return false
+    }
+  }
+
+  return true
+}
+
+/**
+ * Validate an array of topics to see if any of them is valid or not
+  * @param {Array} topics - Array of topics
+ * @returns {String} If the topics is valid, returns null. Otherwise, returns the invalid one
+ */
+function validateTopics (topics) {
+  if (topics.length === 0) {
+    return 'empty_topic_list'
+  }
+  for (var i = 0; i < topics.length; i++) {
+    if (!validateTopic(topics[i])) {
+      return topics[i]
+    }
+  }
+  return null
+}
+
+module.exports = {
+  validateTopics: validateTopics
+}
+
+},{}],220:[function(require,module,exports){
 var wrappy = require('wrappy')
 module.exports = wrappy(once)
 module.exports.strict = wrappy(onceStrict)
@@ -26764,7 +26800,7 @@ exports.signature = asn1.define('signature', function () {
   )
 })
 
-},{"./certificate":224,"asn1.js":18}],224:[function(require,module,exports){
+},{"./certificate":224,"asn1.js":9}],224:[function(require,module,exports){
 // from https://github.com/Rantanen/node-dtls/blob/25a7dc861bda38cfeac93a723500eea4f0ac2e86/Certificate.js
 // thanks to @Rantanen
 
@@ -26855,7 +26891,7 @@ var X509Certificate = asn.define('X509Certificate', function () {
 
 module.exports = X509Certificate
 
-},{"asn1.js":18}],225:[function(require,module,exports){
+},{"asn1.js":9}],225:[function(require,module,exports){
 // adapted from https://github.com/apatil/pemstrip
 var findProc = /Proc-Type: 4,ENCRYPTED[\n\r]+DEK-Info: AES-((?:128)|(?:192)|(?:256))-CBC,([0-9A-H]+)[\n\r]+([0-9A-z\n\r\+\/\=]+)[\n\r]+/m
 var startRegex = /^-----BEGIN ((?:.*? KEY)|CERTIFICATE)-----/m
@@ -26888,7 +26924,7 @@ module.exports = function (okey, password) {
   }
 }
 
-},{"browserify-aes":64,"evp_bytestokey":190,"safe-buffer":266}],226:[function(require,module,exports){
+},{"browserify-aes":55,"evp_bytestokey":181,"safe-buffer":266}],226:[function(require,module,exports){
 var asn1 = require('./asn1')
 var aesid = require('./aesid.json')
 var fixProc = require('./fixProc')
@@ -26997,7 +27033,7 @@ function decrypt (data, password) {
   return Buffer.concat(out)
 }
 
-},{"./aesid.json":222,"./asn1":223,"./fixProc":225,"browserify-aes":64,"pbkdf2":227,"safe-buffer":266}],227:[function(require,module,exports){
+},{"./aesid.json":222,"./asn1":223,"./fixProc":225,"browserify-aes":55,"pbkdf2":227,"safe-buffer":266}],227:[function(require,module,exports){
 exports.pbkdf2 = require('./lib/async')
 exports.pbkdf2Sync = require('./lib/sync')
 
@@ -27151,7 +27187,7 @@ module.exports = function (password, salt, iterations, keylen) {
 }
 
 }).call(this,{"isBuffer":require("../../is-buffer/index.js")})
-},{"../../is-buffer/index.js":207}],231:[function(require,module,exports){
+},{"../../is-buffer/index.js":198}],231:[function(require,module,exports){
 var md5 = require('create-hash/md5')
 var RIPEMD160 = require('ripemd160')
 var sha = require('sha.js')
@@ -27257,7 +27293,7 @@ function pbkdf2 (password, salt, iterations, keylen, digest) {
 
 module.exports = pbkdf2
 
-},{"./default-encoding":229,"./precondition":230,"create-hash/md5":95,"ripemd160":265,"safe-buffer":266,"sha.js":268}],232:[function(require,module,exports){
+},{"./default-encoding":229,"./precondition":230,"create-hash/md5":86,"ripemd160":265,"safe-buffer":266,"sha.js":268}],232:[function(require,module,exports){
 (function (process){
 'use strict';
 
@@ -27524,7 +27560,7 @@ function i2ops (c) {
   return out
 }
 
-},{"create-hash":94,"safe-buffer":266}],236:[function(require,module,exports){
+},{"create-hash":85,"safe-buffer":266}],236:[function(require,module,exports){
 var parseKeys = require('parse-asn1')
 var mgf = require('./mgf')
 var xor = require('./xor')
@@ -27631,7 +27667,7 @@ function compare (a, b) {
   return dif
 }
 
-},{"./mgf":235,"./withPublic":238,"./xor":239,"bn.js":59,"browserify-rsa":82,"create-hash":94,"parse-asn1":226,"safe-buffer":266}],237:[function(require,module,exports){
+},{"./mgf":235,"./withPublic":238,"./xor":239,"bn.js":50,"browserify-rsa":73,"create-hash":85,"parse-asn1":226,"safe-buffer":266}],237:[function(require,module,exports){
 var parseKeys = require('parse-asn1')
 var randomBytes = require('randombytes')
 var createHash = require('create-hash')
@@ -27721,7 +27757,7 @@ function nonZero (len) {
   return out
 }
 
-},{"./mgf":235,"./withPublic":238,"./xor":239,"bn.js":59,"browserify-rsa":82,"create-hash":94,"parse-asn1":226,"randombytes":249,"safe-buffer":266}],238:[function(require,module,exports){
+},{"./mgf":235,"./withPublic":238,"./xor":239,"bn.js":50,"browserify-rsa":73,"create-hash":85,"parse-asn1":226,"randombytes":249,"safe-buffer":266}],238:[function(require,module,exports){
 var BN = require('bn.js')
 var Buffer = require('safe-buffer').Buffer
 
@@ -27735,7 +27771,7 @@ function withPublic (paddedMsg, key) {
 
 module.exports = withPublic
 
-},{"bn.js":59,"safe-buffer":266}],239:[function(require,module,exports){
+},{"bn.js":50,"safe-buffer":266}],239:[function(require,module,exports){
 module.exports = function xor (a, b) {
   var len = a.length
   var i = -1
@@ -29542,7 +29578,7 @@ Duplex.prototype._destroy = function (err, cb) {
 
   pna.nextTick(cb, err);
 };
-},{"./_stream_readable":254,"./_stream_writable":256,"core-util-is":92,"inherits":206,"process-nextick-args":232}],253:[function(require,module,exports){
+},{"./_stream_readable":254,"./_stream_writable":256,"core-util-is":83,"inherits":197,"process-nextick-args":232}],253:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -29590,7 +29626,7 @@ function PassThrough(options) {
 PassThrough.prototype._transform = function (chunk, encoding, cb) {
   cb(null, chunk);
 };
-},{"./_stream_transform":255,"core-util-is":92,"inherits":206}],254:[function(require,module,exports){
+},{"./_stream_transform":255,"core-util-is":83,"inherits":197}],254:[function(require,module,exports){
 (function (process,global){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -30612,7 +30648,7 @@ function indexOf(xs, x) {
   return -1;
 }
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./_stream_duplex":252,"./internal/streams/BufferList":257,"./internal/streams/destroy":258,"./internal/streams/stream":259,"_process":233,"core-util-is":92,"events":189,"inherits":206,"isarray":208,"process-nextick-args":232,"safe-buffer":266,"string_decoder/":277,"util":61}],255:[function(require,module,exports){
+},{"./_stream_duplex":252,"./internal/streams/BufferList":257,"./internal/streams/destroy":258,"./internal/streams/stream":259,"_process":233,"core-util-is":83,"events":180,"inherits":197,"isarray":199,"process-nextick-args":232,"safe-buffer":266,"string_decoder/":277,"util":52}],255:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -30827,7 +30863,7 @@ function done(stream, er, data) {
 
   return stream.push(null);
 }
-},{"./_stream_duplex":252,"core-util-is":92,"inherits":206}],256:[function(require,module,exports){
+},{"./_stream_duplex":252,"core-util-is":83,"inherits":197}],256:[function(require,module,exports){
 (function (process,global,setImmediate){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -31517,7 +31553,7 @@ Writable.prototype._destroy = function (err, cb) {
   cb(err);
 };
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},require("timers").setImmediate)
-},{"./_stream_duplex":252,"./internal/streams/destroy":258,"./internal/streams/stream":259,"_process":233,"core-util-is":92,"inherits":206,"process-nextick-args":232,"safe-buffer":266,"timers":278,"util-deprecate":281}],257:[function(require,module,exports){
+},{"./_stream_duplex":252,"./internal/streams/destroy":258,"./internal/streams/stream":259,"_process":233,"core-util-is":83,"inherits":197,"process-nextick-args":232,"safe-buffer":266,"timers":278,"util-deprecate":281}],257:[function(require,module,exports){
 'use strict';
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
@@ -31597,7 +31633,7 @@ if (util && util.inspect && util.inspect.custom) {
     return this.constructor.name + ' ' + obj;
   };
 }
-},{"safe-buffer":266,"util":61}],258:[function(require,module,exports){
+},{"safe-buffer":266,"util":52}],258:[function(require,module,exports){
 'use strict';
 
 /*<replacement>*/
@@ -31675,7 +31711,7 @@ module.exports = {
 },{"process-nextick-args":232}],259:[function(require,module,exports){
 module.exports = require('events').EventEmitter;
 
-},{"events":189}],260:[function(require,module,exports){
+},{"events":180}],260:[function(require,module,exports){
 module.exports = require('./readable').PassThrough
 
 },{"./readable":261}],261:[function(require,module,exports){
@@ -31917,7 +31953,7 @@ function fn5 (a, b, c, d, e, m, k, s) {
 
 module.exports = RIPEMD160
 
-},{"buffer":90,"hash-base":191,"inherits":206}],266:[function(require,module,exports){
+},{"buffer":81,"hash-base":182,"inherits":197}],266:[function(require,module,exports){
 /* eslint-disable node/no-deprecated-api */
 var buffer = require('buffer')
 var Buffer = buffer.Buffer
@@ -31981,7 +32017,7 @@ SafeBuffer.allocUnsafeSlow = function (size) {
   return buffer.SlowBuffer(size)
 }
 
-},{"buffer":90}],267:[function(require,module,exports){
+},{"buffer":81}],267:[function(require,module,exports){
 var Buffer = require('safe-buffer').Buffer
 
 // prototype class for hash functions
@@ -32177,7 +32213,7 @@ Sha.prototype._hash = function () {
 
 module.exports = Sha
 
-},{"./hash":267,"inherits":206,"safe-buffer":266}],270:[function(require,module,exports){
+},{"./hash":267,"inherits":197,"safe-buffer":266}],270:[function(require,module,exports){
 /*
  * A JavaScript implementation of the Secure Hash Algorithm, SHA-1, as defined
  * in FIPS PUB 180-1
@@ -32278,7 +32314,7 @@ Sha1.prototype._hash = function () {
 
 module.exports = Sha1
 
-},{"./hash":267,"inherits":206,"safe-buffer":266}],271:[function(require,module,exports){
+},{"./hash":267,"inherits":197,"safe-buffer":266}],271:[function(require,module,exports){
 /**
  * A JavaScript implementation of the Secure Hash Algorithm, SHA-256, as defined
  * in FIPS 180-2
@@ -32333,7 +32369,7 @@ Sha224.prototype._hash = function () {
 
 module.exports = Sha224
 
-},{"./hash":267,"./sha256":272,"inherits":206,"safe-buffer":266}],272:[function(require,module,exports){
+},{"./hash":267,"./sha256":272,"inherits":197,"safe-buffer":266}],272:[function(require,module,exports){
 /**
  * A JavaScript implementation of the Secure Hash Algorithm, SHA-256, as defined
  * in FIPS 180-2
@@ -32470,7 +32506,7 @@ Sha256.prototype._hash = function () {
 
 module.exports = Sha256
 
-},{"./hash":267,"inherits":206,"safe-buffer":266}],273:[function(require,module,exports){
+},{"./hash":267,"inherits":197,"safe-buffer":266}],273:[function(require,module,exports){
 var inherits = require('inherits')
 var SHA512 = require('./sha512')
 var Hash = require('./hash')
@@ -32529,7 +32565,7 @@ Sha384.prototype._hash = function () {
 
 module.exports = Sha384
 
-},{"./hash":267,"./sha512":274,"inherits":206,"safe-buffer":266}],274:[function(require,module,exports){
+},{"./hash":267,"./sha512":274,"inherits":197,"safe-buffer":266}],274:[function(require,module,exports){
 var inherits = require('inherits')
 var Hash = require('./hash')
 var Buffer = require('safe-buffer').Buffer
@@ -32791,7 +32827,7 @@ Sha512.prototype._hash = function () {
 
 module.exports = Sha512
 
-},{"./hash":267,"inherits":206,"safe-buffer":266}],275:[function(require,module,exports){
+},{"./hash":267,"inherits":197,"safe-buffer":266}],275:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -32920,7 +32956,7 @@ Stream.prototype.pipe = function(dest, options) {
   return dest;
 };
 
-},{"events":189,"inherits":206,"readable-stream/duplex.js":251,"readable-stream/passthrough.js":260,"readable-stream/readable.js":261,"readable-stream/transform.js":262,"readable-stream/writable.js":263}],276:[function(require,module,exports){
+},{"events":180,"inherits":197,"readable-stream/duplex.js":251,"readable-stream/passthrough.js":260,"readable-stream/readable.js":261,"readable-stream/transform.js":262,"readable-stream/writable.js":263}],276:[function(require,module,exports){
 module.exports = shift
 
 function shift (stream) {
@@ -34738,7 +34774,7 @@ function hasOwnProperty(obj, prop) {
 }
 
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./support/isBuffer":282,"_process":233,"inherits":206}],284:[function(require,module,exports){
+},{"./support/isBuffer":282,"_process":233,"inherits":197}],284:[function(require,module,exports){
 var indexOf = function (xs, item) {
     if (xs.indexOf) return xs.indexOf(item);
     else for (var i = 0; i < xs.length; i++) {
@@ -35065,7 +35101,7 @@ function WebSocketStream(target, protocols, options) {
 }
 
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"_process":233,"duplexify":111,"readable-stream":261,"safe-buffer":266,"ws":286}],286:[function(require,module,exports){
+},{"_process":233,"duplexify":102,"readable-stream":261,"safe-buffer":266,"ws":286}],286:[function(require,module,exports){
 
 var ws = null
 
@@ -35194,7 +35230,7 @@ module.exports={
   },
   "dependencies": {
     "axios": "^0.18.0",
-    "mqtt": "./MQTT.js-20190511",
+    "mqtt": "3.0.0",
     "qs": "^6.6.0"
   },
   "ruff": {
@@ -35207,5 +35243,5 @@ module.exports={
   }
 }
 
-},{}]},{},[13])(13)
+},{}]},{},[4])(4)
 });

@@ -56,7 +56,7 @@
   },
   "dependencies": {
     "axios": "^0.18.0",
-    "mqtt": "./MQTT.js-20190511",
+    "mqtt": "3.0.0",
     "qs": "^6.6.0"
   },
   "ruff": {

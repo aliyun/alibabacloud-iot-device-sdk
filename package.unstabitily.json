@@ -1,6 +1,6 @@
 {
   "name": "@alife/alibabacloud-iot-device-sdk-unstabitily",
-  "version": "1.1.6",
+  "version": "0.9999.8",
   "publishConfig": {
     "registry": "https://registry.npm.alibaba-inc.com"
   },
@@ -29,7 +29,7 @@
   },
   "dependencies": {
     "axios": "^0.18.0",
-    "mqtt": "^2.15.0",
+    "mqtt": "3.0.0",
     "qs": "^6.6.0"
   },
   "ruff": {
