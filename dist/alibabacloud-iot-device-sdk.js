@@ -35174,7 +35174,7 @@ function extend() {
 },{}],289:[function(require,module,exports){
 module.exports={
   "name": "alibabacloud-iot-device-sdk",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "alibabacloud iot device sdk",
   "keywords": [
     "iot",
@@ -35237,9 +35237,6 @@ module.exports={
     "dependencies": {
       "mqtt": "^0.1.3"
     }
-  },
-  "publishConfig": {
-    "registry": "https://registry.npm.alibaba-inc.com"
   }
 }
 
