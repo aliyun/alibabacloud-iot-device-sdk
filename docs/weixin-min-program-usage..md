@@ -1,6 +1,6 @@
 ## 微信小程序中使用 alibabacloud-iot-device-sdk
 
-注意: alibabacloud-iot-device-sdk 1.1.0版本以上才支持
+注意: alibabacloud-iot-device-sdk 1.2.0版本以上才支持
 
 ## 小程序开发环境
 
@@ -54,7 +54,7 @@ device.on('error', (err) => {
 
 ## 特别注意，必读
 
-1：alibabacloud-iot-device-sdk 1.1.0版本以上才支持, 1.1.0版本计划6月初发布
+1：alibabacloud-iot-device-sdk 1.2.0版本以上才支持, 1.2.0版本计划6月初发布
 2: 模拟器和真机调试都可以成功连接
 3：配置信任服务器地址
     日常环境可以点击ide右上角详情，勾选 “不校验合法域名、webview（业务域名）、tls版本及HTTPS证书” 选项
