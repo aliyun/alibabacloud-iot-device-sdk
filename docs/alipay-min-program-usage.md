@@ -1,6 +1,6 @@
 ## 支付宝小程序中使用 alibabacloud-iot-device-sdk
 
-注意: alibabacloud-iot-device-sdk 1.2.0版本以上才支持
+注意: alibabacloud-iot-device-sdk 1.2.4版本以上才支持
 
 ## 支付宝小程序开发环境
 
@@ -54,7 +54,7 @@ device.on('error', (err) => {
 
 ## 特别注意，必读
 
-1：alibabacloud-iot-device-sdk 1.2.0版本以上才支持, 1.2.0版本计划6月初发布
+1：alibabacloud-iot-device-sdk 1.2.4版本以上才支持
 2: 支付宝模拟器无法成功连接，需要使用真机调试（编辑器右上角调试按钮，生成二维码，支付宝app扫描进入真机模式）
 3：配置信任服务器地址
     日常环境可以点击小程序ide右上角详情，勾选 “忽略 httpRequest 域名合法性检查（仅限调试时，且支付宝 10.1.35 版本以上）” 选项

@@ -35174,7 +35174,7 @@ function extend() {
 },{}],289:[function(require,module,exports){
 module.exports={
   "name": "alibabacloud-iot-device-sdk",
-  "version": "1.2.0",
+  "version": "1.2.3",
   "description": "alibabacloud iot device sdk",
   "keywords": [
     "iot",
@@ -35217,7 +35217,7 @@ module.exports={
   "url": "https://github.com/aliyun/alibabacloud-iot-device-sdk/issues",
   "license": "MIT",
   "files": [
-    "dist/"
+    "dist/","lib"
   ],
   "devDependencies": {
     "babel-cli": "^6.26.0",

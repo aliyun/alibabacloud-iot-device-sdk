@@ -678,7 +678,7 @@ gateway.on('connect', () => {
 - 增加模组信息参数
 
 
-#### 1.2.0
+#### 1.2.4
 
 - 包名的修改，从 aliyun-iot-device-sdk 正式改名为 alibabacloud-iot-device-sdk
 - 增加对微信小程序，支付宝小程序的支持，浏览器的支持 [教程连接 ./docs](./docs)
