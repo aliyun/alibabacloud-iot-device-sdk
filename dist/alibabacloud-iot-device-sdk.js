@@ -127,7 +127,8 @@ var _require = require('./utils'),
     tripleExpectNotNull = _require.tripleExpectNotNull,
     tripleIgnoreCase = _require.tripleIgnoreCase,
     mqttMatch = _require.mqttMatch,
-    mqttNotMatch = _require.mqttNotMatch;
+    mqttNotMatch = _require.mqttNotMatch,
+    isJsonString = _require.isJsonString;
 
 var debug = createDebug('gateway');
 
@@ -264,6 +265,12 @@ var Gateway = function (_Thing) {
   }, {
     key: '_mqttCallbackHandler',
     value: function _mqttCallbackHandler(topic, message) {
+
+      // 情况1:返回值为非结构化数据（非结构化可能是：基础版产品或是用户自定义topic）
+      if (isJsonString(message.toString()) == false) {
+        return;
+      }
+
       // 开始处理返回值
       try {
         var res = JSON.parse(message.toString());
@@ -318,7 +325,7 @@ var Gateway = function (_Thing) {
         return mqttMatch(subDevice.model.getWildcardServiceTopic(), topic) || mqttMatch(subDevice.model.RRPC_REQ_TOPIC, topic);
       });
     }
-    // 子设备影子设备topic
+    // 子设备影子设备topic 
 
   }, {
     key: '_searchMqttMatchShadowTopicWithSubDevice',
@@ -799,7 +806,7 @@ var Thing = function (_EventEmitter) {
     var _this = _possibleConstructorReturn(this, (Thing.__proto__ || Object.getPrototypeOf(Thing)).call(this));
 
     _this._type = _this.constructor.name || "UNKNOW";
-    console.log("thing type:", _this._type);
+    // console.log("thing type:",this._type);
     //init model
     _this.model = new Model(config);
     _this.serveCB = [];
@@ -35174,7 +35181,7 @@ function extend() {
 },{}],289:[function(require,module,exports){
 module.exports={
   "name": "alibabacloud-iot-device-sdk",
-  "version": "1.2.3",
+  "version": "1.2.5",
   "description": "alibabacloud iot device sdk",
   "keywords": [
     "iot",
