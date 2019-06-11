@@ -22,7 +22,7 @@ class Thing extends EventEmitter {
     super();
     // 设备类型:device,subdevice,gateway
     this._type = this.constructor.name || "UNKNOW";
-    console.log("thing type:",this._type);
+    // console.log("thing type:",this._type);
     //init model
     this.model = new Model(config);
     this.serveCB = [];

@@ -9,7 +9,8 @@ const {
   tripleExpectNotNull,
   tripleIgnoreCase,
   mqttMatch,
-  mqttNotMatch
+  mqttNotMatch,
+  isJsonString
 } = require('./utils');
 const debug = createDebug('gateway');
 
@@ -129,6 +130,12 @@ class Gateway extends Thing {
   * 重写device message方法，因为消息只发送到网关，所以要通过网关转发到子设备
   */ 
   _mqttCallbackHandler(topic,message) {
+
+    // 情况1:返回值为非结构化数据（非结构化可能是：基础版产品或是用户自定义topic）
+    if(isJsonString(message.toString())==false){  
+      return;
+    }
+
     // 开始处理返回值
     try {
       let res = JSON.parse(message.toString());
@@ -167,7 +174,7 @@ class Gateway extends Thing {
     } catch (e) {
       console.log('_mqttCallbackHandler error',e)
     }
- 
+
     // device 、gateway message handler
     super._mqttCallbackHandler(topic,message);
   }
@@ -178,7 +185,7 @@ class Gateway extends Thing {
       mqttMatch(subDevice.model.getWildcardServiceTopic(),topic) || mqttMatch(subDevice.model.RRPC_REQ_TOPIC,topic)
     );
   }
-   // 子设备影子设备topic
+   // 子设备影子设备topic 
   _searchMqttMatchShadowTopicWithSubDevice(topic){
     return this._getSubDevices().find(subDevice => 
       mqttMatch(subDevice.model.SHADOW_SUBSCRIBE_TOPIC,topic)
