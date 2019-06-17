@@ -1,0 +1,110 @@
+
+
+
+<!DOCTYPE html><html><head>
+
+</head>
+<body unresolved="" class="nochrome">
+
+
+<!-- <script src="https://gw-office.alipayobjects.com/basement_prod/944e410e-b23b-40fa-9fdf-8dc86937487a.js"></script> -->
+<script src="../../dist/alibabacloud-iot-device-sdk.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@3.12.0/dist/xterm.css" />
+<script src="https://cdn.jsdelivr.net/npm/xterm@3.12.0/dist/xterm.js"></script>
+<!-- nes -->
+<link href="https://fonts.googleapis.com/css?family=Press+Start+2P" rel="stylesheet">
+<link href="https://unpkg.com/nes.css/css/nes.css" rel="stylesheet" />
+
+<style>
+  html, body, pre, code, kbd, samp {
+      font-family: "font-family you want to use";
+      text-align: center;
+  }
+  .buts{
+    margin: 50px auto;
+  }
+</style>
+
+<script>
+    
+    var term = new Terminal({'drawBoldTextInBrightColors': true});
+    console.log = function (str){
+      term.writeln(str)
+    }
+    term.open(document.getElementById('terminal'));
+    term.writeln('alibabacloud-iot-device-sdk,请连接后使用功能')
+    const sdk_device2 = {
+      productKey: 'a1aq9sQk2JE',
+      deviceName: 'sdk_device2',
+      deviceSecret: '9MjBATSaS9RVditKYamlTtIGwqhuiQeB',
+    }
+    let device;
+
+    function connect(){
+      if(!device){
+        term.writeln('开始连接....');
+        device = iot.device(sdk_device2);
+        // 测试上报一条设备标签数据
+        device.on('connect', (res) => {
+          term.writeln('连接成功....',res)
+        });
+        device.on('error', (err) => {
+          term.writeln('连接错误,error:',err);
+        });
+        device.onShadow((res) => {
+          term.writeln('获取最新设备影子,' + JSON.stringify(res));
+        })
+      }  
+    }
+
+    function getShadow(){
+      // 设备主动获取影子 
+      device.getShadow();
+    }
+
+    function postEvent(){
+      device.postEvent("lowpower", {
+        power: 10,
+      }, (res) => {
+        console.log("postEvent"+JSON.stringify(res));
+      })
+    }
+
+    function addTags(){
+      // 添加标签ok
+      device.postTags(
+        [{
+            "attrKey": "Temperature",
+            "attrValue": "311"
+          },
+          {
+            "attrKey": "a",
+            "attrValue": "avalue"
+          },
+          {
+            "attrKey": "b",
+            "attrValue": "bvalue"
+          }
+        ],
+        (res) => {
+          console.log("添加标签成功"+JSON.stringify(res));
+
+        }
+      );
+    }
+    
+</script>
+
+<div id="terminal"></div>
+<div class="buts">
+  <button type="button" class="nes-btn is-primary" onclick="connect()">connect</button>
+  <button type="button" class="nes-btn is-success" onclick="postEvent()">postEvent</button>
+  <button type="button" class="nes-btn is-warning" onclick="getShadow()">getShadow</button>
+  <button type="button" class="nes-btn is-error" onclick="addTags()">addTags</button>  
+</div>
+
+<!-- github -->
+<a href="https://github.com/aliyun/alibabacloud-iot-device-sdk">  alibabacloud-iot-device-sdk   <i class="nes-octocat animate"></i></a>
+
+</body>
+</html>
