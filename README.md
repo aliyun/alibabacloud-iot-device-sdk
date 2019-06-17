@@ -25,6 +25,11 @@ npm install alibabacloud-iot-device-sdk --save
 const iot = require('alibabacloud-iot-device-sdk');
 // 浏览器、微信小程序，支付宝小程序引入./dist编译的js文件
 // const iot = require('./dist/alibabacloud-iot-device-sdk.js');
+// js版本下载地址：
+//    https://github.com/aliyun/alibabacloud-iot-device-sdk/tree/master/dist  或
+//    alibabacloud-iot-device-sdk.js 下载地址 https://unpkg.com/alibabacloud-iot-device-sdk@1.2.4/dist/alibabacloud-iot-device-sdk.js  或
+//    alibabacloud-iot-device-sdk.min.js 下载地址 https://unpkg.com/alibabacloud-iot-device-sdk@1.2.4/dist/alibabacloud-iot-device-sdk.min.js  
+//  
 
 const device = iot.device({
   productKey: '<productKey>',
@@ -222,7 +227,20 @@ device.on('error', (err) => {
 
 ### iot.device#publish(topic, message, [options], [callback])
 
-向topic发送消息，等同于 [mqtt.Client#publish()](https://github.com/mqttjs/MQTT.js/blob/master/README.md#publish) 方法。
+* `topic` ：topic值 `String` 类型
+* `message` 需要发送的消息, 数据格式为`Buffer or String` 类型
+* `options` 
+  * `qos` qos级别 `number` 类型 ，默认值0 
+  * `retain` 
+  * `dup`
+* `callback`
+
+````js
+device.publish('/<productKey>/<deviceName>/update', 'hello world!');
+device.publish('/<productKey>/<deviceName>/update', 'hello world!',{
+  qos:1 // default 0
+});
+````
 
 <a name="subscribe"></a>
 
@@ -674,12 +692,37 @@ gateway.on('connect', () => {
       * `520` 子设备会话不存在
 
 
+## example说明
+> 注意： example中的iot引用，const iot = require('../lib');，如果在github工程以外使用，需要换成  const iot = require('alibabacloud-iot-device-sdk');
+
+example见github开源工程中example目录 https://github.com/aliyun/alibabacloud-iot-device-sdk
+
+- broswer 浏览器中使用demo 路径 /example/broswer/index.html
+- quickstart 快速开始demo 路径 /example/quickstart
+- props 物模型-属性demo   路径 /example/props.js
+- event 物模型-事件demo 路径 /example/event.js
+- service_async 物模型-异步服务demo 路径 /example/service_async.js
+- service_sync 物模型-同步服务demo 路径 /example/service_sync.js
+- origin 基础mqtt pub，sub使用 路径 /example/origin.js
+- remote_confit_get 远程配置-主动获取 路径 /example/remote_confit_get.js
+- remote_confit_sub 远程配置-订阅获取 路径 /example/remote_confit_sub.js
+- tag 设备标签获取 路径 /example/tag.js
+- shadow 设备影子 路径 /example/shadow.js
+- one_model_one_secret 一型一密使用demo 路径 /example/one_model_one_secret.js
+
+
+
+
+
+
 ## 版本更新说明
 
 #### todo  
 - 优化代码 _wrapServiceSubscribe使用通配符订阅消息
 - 增加模组信息参数
 
+#### 1.2.5
+- 修复网关使用mqtt pub和sub时字符转译报错的警告
 
 #### 1.2.4
 

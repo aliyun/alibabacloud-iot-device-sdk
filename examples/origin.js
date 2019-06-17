@@ -9,7 +9,7 @@ const device = iot.device({
 });
 
 
-device.subscribe('/a1YPDpMvd5t/base_sdk_device2/get');
+
 
 device.on('message', (topic, payload) => {
   console.log('topic:',topic);
@@ -20,6 +20,7 @@ device.on('message', (topic, payload) => {
 
 device.on('connect', () => {
   console.log('>>>>>connect');
+  device.subscribe('/a1YPDpMvd5t/base_sdk_device2/get');
   setInterval(()=>{
     device.publish('/a1YPDpMvd5t/base_sdk_device2/update', "hello");
   },2000)
