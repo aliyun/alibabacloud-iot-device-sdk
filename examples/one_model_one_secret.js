@@ -6,8 +6,12 @@ const registerDeviceInfo = {
   deviceName:"device1"
 }
 
-iot.register(registerDeviceInfo,(error,res)=>{
-  if(error){console.log("register faild",error);return}
-  console.log("register succeed,data:",res);
+iot.register(registerDeviceInfo,(res)=>{
+  if(res.code != 200){
+    console.log("register faild",error);
+    return;
+  }
+  console.log("register succeed");
+  console.log("res is:",res);
 })
 
