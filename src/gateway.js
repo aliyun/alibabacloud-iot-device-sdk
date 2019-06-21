@@ -143,7 +143,7 @@ class Gateway extends Thing {
       let subDevice;
       // console.log('gateway _mqttCallbackHandler',topic,res);
 
-      //处理On Props Set回调 todo
+      //处理On Props Set回调
       // topic /sys/<pk>/<dn>/thing/service/property/set
       subDevice = this._searchMqttMatchOnSetPropsTopicWithSubDevice(topic);
       if(subDevice){

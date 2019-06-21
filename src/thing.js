@@ -67,6 +67,7 @@ class Thing extends EventEmitter {
     this._publishAlinkMessage({
       method: this.model.POST_PROPERY_METHOD,
       pubTopic: this.model.POST_PROPS_TOPIC,
+      expectReplyTopic:this.model.POST_PROPS_REPLY_TOPIC,
       params: props
     }, cb);
   }
@@ -264,9 +265,12 @@ class Thing extends EventEmitter {
     method = "",
     pubTopic,
     params,
-    timeout
-  }, cb) {
-    const id = guid();
+    expectReplyTopic,
+    timeout,
+    msgId
+  }, cb) { 
+    
+    const id = this._genAlinkMessageId(msgId,expectReplyTopic);
     //暂存回调函数
     this._pushCallback(id, cb);
     const msg = this.model.genAlinkContent(method, params, id);
@@ -279,6 +283,19 @@ class Thing extends EventEmitter {
         debug('publish error', pubTopic, msg.id, err, res)
       }
     });
+  }
+
+  _genAlinkMessageId(originID,expect){
+    let msgId;
+    const separator = '|exp-topic|';
+    if(!originID){
+      msgId = guid();
+    }
+    // 解决部分topic响应多次的问题
+    if(expect){
+      msgId = msgId + separator + expect; 
+    }
+    return msgId;
   }
 
   _subscribeClientEvent(client = this._mqttClient){
@@ -365,7 +382,7 @@ class Thing extends EventEmitter {
     try {
       let res = JSON.parse(message.toString());
 
-      //处理On Props Set回调 todo
+      //处理On Props Set回调
       // topic /sys/<pk>/<dn>/thing/service/property/set
       if((mqttMatch(this.model.ONSET_PROPS_TOPIC,topic))){
         this._onPropsCB(res);
@@ -393,20 +410,40 @@ class Thing extends EventEmitter {
         return;
       }
        //其他通用回调
-      const {id: cbID} = res;
-      const callback = this._popCallback(cbID);
+      let {id: cbID} = res;
+      const callback = this._findCallback(cbID,topic);
       if(callback){callback(res);}
 
     } catch (e) {
       // console.log('_mqttCallbackHandler error',e)
     }
   }
-  // 查找回调函数,找到后使
-  _popCallback(cbID) {
+
+  _findCallback(cbID,topic) {
+    const separator = '|exp-topic|';
+    const msgTopic = cbID.split(separator)[1];
+    if(msgTopic && (msgTopic!=topic)){
+      return;
+    } 
+    // 查找回调函数,找到后删除
     const cb = this._getCallbackById(cbID);
     delete this._cb[cbID];
     return cb;
+
+    // if(cbID.indexOf(separator)>0 ){
+    //   console.log("cbID>>>>:",cbID);
+    //   console.log("cbID.split",cbID.split(separator)[1]);
+    //   if(cbID.split(separator)[1] != topic){
+    //     return;
+    //   }
+    // }
   }
+  // // 查找回调函数,找到后使
+  // _popCallback(cbID) {
+  //   const cb = this._getCallbackById(cbID);
+  //   delete this._cb[cbID];
+  //   return cb;
+  // }
 
   _wrapServiceSubscribe(serviceName, cb) {
     let subscription;

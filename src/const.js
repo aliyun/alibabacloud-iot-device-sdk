@@ -12,7 +12,7 @@ export const ALIYUN_BROKER_METHODS_TEMPLATE = {
   GET_TOPO: 'thing.topo.get',
   SUBDEVICE_REGISTER: 'thing.sub.register'
 };
-
+ 
 export const ALIYUN_BROKER_TOPICS = {
   /* device topic */
   SERVICE_TOPIC: '/sys/%s/%s/thing/service/%s',
@@ -20,7 +20,8 @@ export const ALIYUN_BROKER_TOPICS = {
   PROPERTY_POST_TOPIC: '/sys/%s/%s/thing/event/property/post',
   PROPERTY_POST_REPLY_TOPIC: '/sys/%s/%s/thing/event/property/post_reply',
   ONSET_PROPS_TOPIC :'/sys/%s/%s/thing/service/property/set',
-  EVENT_WILDCARD_TOPIC:'/sys/%s/%s/thing/event/#',
+  // EVENT_WILDCARD_TOPIC:'/sys/%s/%s/thing/event/#',
+  EVENT_WILDCARD_TOPIC:'/sys/%s/%s/thing/event/+/post_reply',
   EVENT_POST_TOPIC: '/sys/%s/%s/thing/event/%s/post',
   EVENT_POST_REPLY_TOPIC: '/sys/%s/%s/thing/event/%s/post_reply',
   REPORT_SDK_INFO_TOPIC: '/sys/%s/%s/thing/deviceinfo/update',
