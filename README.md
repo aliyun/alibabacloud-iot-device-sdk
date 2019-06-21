@@ -718,9 +718,12 @@ example见github开源工程中example目录 https://github.com/aliyun/alibabacl
 
 ## 版本更新说明
 
-#### todo  
-- 优化代码 _wrapServiceSubscribe使用通配符订阅消息
-- 增加模组信息参数
+
+#### 1.2.6(未发布)
+- 增加onProps方法，用于监听云端对物模型属性设置的监听
+
+#### 1.2.5
+- 修复网关使用mqtt pub和sub时字符转译报错的警告
 
 #### 1.2.5
 - 修复网关使用mqtt pub和sub时字符转译报错的警告
