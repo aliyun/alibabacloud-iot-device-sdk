@@ -33,6 +33,8 @@ gateway.on('connect', () => {
     console.log(">>>>sub1 connected!");
     sub1.postProps({
       state: 1
+    },(res)=>{
+      console.log('sub1 postProps：',res);
     })
   });
 

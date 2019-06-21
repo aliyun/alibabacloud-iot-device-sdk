@@ -176,7 +176,7 @@ class Gateway extends Thing {
     
       //其他通用回调
       const {id: cbID} = res;
-      const callback = this._getAllSubDevicesCallback(cbID);
+      const callback = this._getAllSubDevicesCallback(cbID,topic);
       // console.log("gateway通用回调",topic,callback,message);
       if(callback){callback(res);}
 
@@ -224,11 +224,11 @@ class Gateway extends Thing {
     this._getSubDevices().push(subDevice);
   }
 
-  _getAllSubDevicesCallback(cbID) {
+  _getAllSubDevicesCallback(cbID,topic) {
     let callback;
     this._getSubDevices().forEach(subDevice => {
       // console.log('>>>subDevice',subDevice);
-      let cb = subDevice._popCallback(cbID);
+      let cb = subDevice._findCallback(cbID,topic);
       if(cb) {
         callback = cb;
       }

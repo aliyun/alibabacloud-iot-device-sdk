@@ -85,6 +85,7 @@ class Thing extends EventEmitter {
     this._publishAlinkMessage({
       method: this.model.getPostEventMethod(eventName),
       pubTopic: this.model.getPostEvenTopic(eventName),
+      expectReplyTopic:this.model.getPostEvenReplyTopic(eventName),
       params
     }, cb);
   }
@@ -409,7 +410,7 @@ class Thing extends EventEmitter {
         this._onConfigCB(res);
         return;
       }
-       //其他通用回调
+      //其他通用回调
       let {id: cbID} = res;
       const callback = this._findCallback(cbID,topic);
       if(callback){callback(res);}
