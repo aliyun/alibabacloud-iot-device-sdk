@@ -28,6 +28,8 @@ class Thing extends EventEmitter {
     this.serveCB = [];
     this._onShadowCB = nilFn;
     this._onConfigCB = nilFn;
+    // props set callback
+    this._onPropsCB = nilFn;
     //兼容旧版本
     this._compatibleoverdue();
   }
@@ -68,6 +70,12 @@ class Thing extends EventEmitter {
       params: props
     }, cb);
   }
+
+  // 当云端属性设置时触发
+  onProps(cb) {
+    this._onPropsCB = cb;
+  }
+
   /*
     高级版设备事件上报：详细文档地址：https://help.aliyun.com/document_detail/89301.html?spm=a2c4g.11186623.6.660.3ad223dcF1jjSU
     "params": {"key": "key","value": "value"}
@@ -310,6 +318,7 @@ class Thing extends EventEmitter {
       // "/ext/#"
       // devices
       thing.model.POST_PROPS_REPLY_TOPIC,
+      thing.model.ONSET_PROPS_TOPIC,
       thing.model.getWildcardEvenTopic(),
       thing.model.TAG_REPLY_TOPIC,
       thing.model.TAG_DELETE_REPLY_TOPIC,
@@ -340,6 +349,9 @@ class Thing extends EventEmitter {
   // 处理内部message以及各种方法的回调
   _mqttCallbackHandler(topic,message) {
     // console.log('device _mqttCallbackHandler',topic,message);
+    // console.log('message',JSON.parse(message.toString()));
+    // console.log('topic',topic);
+
     // 几种不处理的情况
     // 情况1:回调函数为空
     if (this._cb==[] && this._serviceCB==[] && this._onShadowCB == nilFn && this._onConfigCB == nilFn ){
@@ -352,9 +364,17 @@ class Thing extends EventEmitter {
     // 开始处理返回值
     try {
       let res = JSON.parse(message.toString());
+
+      //处理On Props Set回调 todo
+      // topic /sys/<pk>/<dn>/thing/service/property/set
+      if((mqttMatch(this.model.ONSET_PROPS_TOPIC,topic))){
+        this._onPropsCB(res);
+        return; 
+      }
+
       //处理物模型服务订阅返回数据,同步或者异步方式
       if((mqttMatch(this.model.getWildcardServiceTopic(),topic) || mqttMatch(this.model.RRPC_REQ_TOPIC,topic)) && this._onReceiveService!=undefined){
-        console.log("device  mqttMatch(this.model.getWildcardServiceTopic");
+        // console.log("device  mqttMatch(this.model.getWildcardServiceTopic");
         this._onReceiveService(topic,res);
         return; 
       }

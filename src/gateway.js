@@ -81,6 +81,7 @@ class Gateway extends Thing {
       },(resp)=>{
         cb(resp);
         if (resp.code === 200) {
+          // gateway subscribe subDevice Topic
           // subdevice subscribe topic must until subdevice login succeed!
           this._subscribePresetTopic(subDevice);
           subDevice.emit("connect");
@@ -142,6 +143,14 @@ class Gateway extends Thing {
       let subDevice;
       // console.log('gateway _mqttCallbackHandler',topic,res);
 
+      //处理On Props Set回调 todo
+      // topic /sys/<pk>/<dn>/thing/service/property/set
+      subDevice = this._searchMqttMatchOnSetPropsTopicWithSubDevice(topic);
+      if(subDevice){
+        subDevice._onPropsCB(res);
+        return; 
+      }
+      
       //处理子设备服务返回数据,同步或者异步方式
       subDevice = this._searchMqttMatchServiceTopicWithSubDevice(topic);
       if(subDevice){
@@ -179,6 +188,12 @@ class Gateway extends Thing {
     super._mqttCallbackHandler(topic,message);
   }
 
+  // 子设备On Set Porps topic
+  _searchMqttMatchOnSetPropsTopicWithSubDevice(topic){
+    return this._getSubDevices().find( subDevice => 
+      mqttMatch(subDevice.model.ONSET_PROPS_TOPIC,topic)
+    );
+  }
   // 子设备的服务topic
   _searchMqttMatchServiceTopicWithSubDevice(topic){
     return this._getSubDevices().find(subDevice => 

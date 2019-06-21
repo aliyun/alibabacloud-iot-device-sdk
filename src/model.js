@@ -248,6 +248,8 @@ export default class Model {
     const _formatWithPKDN = template => util.format(template, this.productKey, this.deviceName);
     this.POST_PROPS_TOPIC = _formatWithPKDN(BROKER_TOPICS.PROPERTY_POST_TOPIC)
     this.POST_PROPS_REPLY_TOPIC = _formatWithPKDN(BROKER_TOPICS.PROPERTY_POST_REPLY_TOPIC)
+    this.ONSET_PROPS_TOPIC = _formatWithPKDN(BROKER_TOPICS.ONSET_PROPS_TOPIC)
+    
     // this.POST_EVENT_TOPIC = _formatWithPKDN(BROKER_TOPICS.EVENT_POST_TOPIC)
     // this.POST_EVENT_REPLY_TOPIC = _formatWithPKDN(BROKER_TOPICS.EVENT_POST_REPLY_TOPIC)
     this.SERVICE_TOPIC = _formatWithPKDN(BROKER_TOPICS.SERVICE_TOPIC)

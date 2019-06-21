@@ -1,4 +1,5 @@
 # alibabacloud IoT Device SDK for Javascript
+> 阿里云IoT官方版本
 
 alibabacloud IoT Device SDK提供设备接入阿里云IoT物联网平台(LinkPlatform)的JavaScript版本的sdk，可以运行在node,broswer，微信小程序，支付宝小程序环境，封装LinkPlatform物联网平台的设备端能力，如设备连接云平台，数据pub，sub的上下行通讯。还有许多高级功能，如影子设备，远程配置，基于设备物模型（属性、服务、事件）的开发模式，网关和子设备的能力等，基于SDK的设备端开发或设备应用开发，可以极大简化开发门槛。
 

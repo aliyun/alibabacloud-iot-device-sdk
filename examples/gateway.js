@@ -31,26 +31,29 @@ gateway.on('connect', () => {
   // subdevice on connected
   sub1.on('connect', () => {
     console.log(">>>>sub1 connected!");
-    // set device props
     sub1.postProps({
       state: 1
     })
   });
-  
+
+  // 云端设置属性时触发
+  sub1.onProps((res)=>{
+    console.log(">>>>sub1 onProps:",res);
+  })  
 
   //subdevice login
-  const sub2= gateway.login(
-    sub2Info,
-    (res) => {
-      console.log('>>>>>sub2 login', res);
-    }
-  );
-  // subdevice on connected
-  sub2.on('connect', () => {
-    console.log(">>>>sub2 connected!");
-    // set device props
-    sub2.postProps({
-      state: 1
-    })
-  });
+  // const sub2= gateway.login(
+  //   sub2Info,
+  //   (res) => {
+  //     console.log('>>>>>sub2 login', res);
+  //   }
+  // );
+  // // subdevice on connected
+  // sub2.on('connect', () => {
+  //   console.log(">>>>sub2 connected!");
+  //   // set device props
+  //   sub2.postProps({
+  //     state: 1
+  //   })
+  // });
 });

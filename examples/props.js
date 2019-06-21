@@ -1,5 +1,6 @@
 const iot = require('../lib');
 
+let count = 0;
 const device = iot.device({
   "ProductKey": "a1ouyopKiEU",
   "DeviceName": "device6",
@@ -8,9 +9,15 @@ const device = iot.device({
 
 device.on('connect', () => {
   console.log('>>>>>connect');
-  device.postProps({
-    LightSwitch: 0
-  }, (res) => {
-    console.log(`postProps:`,res);
-  });
+  setInterval(() => {
+    device.postProps({
+      state: count++%2
+    }, (res) => {
+      console.log(`postProps:`,res);
+    });
+  }, 10000);
 });
+
+device.onProps((res)=>{
+  console.log('>>>onProps',res);
+})

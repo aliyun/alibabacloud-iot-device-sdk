@@ -19,6 +19,7 @@ export const ALIYUN_BROKER_TOPICS = {
   SERVICE_REPLY_TOPIC: '/sys/%s/%s/thing/service/%s_reply',
   PROPERTY_POST_TOPIC: '/sys/%s/%s/thing/event/property/post',
   PROPERTY_POST_REPLY_TOPIC: '/sys/%s/%s/thing/event/property/post_reply',
+  ONSET_PROPS_TOPIC :'/sys/%s/%s/thing/service/property/set',
   EVENT_WILDCARD_TOPIC:'/sys/%s/%s/thing/event/#',
   EVENT_POST_TOPIC: '/sys/%s/%s/thing/event/%s/post',
   EVENT_POST_REPLY_TOPIC: '/sys/%s/%s/thing/event/%s/post_reply',
