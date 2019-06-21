@@ -719,16 +719,14 @@ example见github开源工程中example目录 https://github.com/aliyun/alibabacl
 ## 版本更新说明
 
 
-#### 1.2.6(未发布)
+#### 1.2.7
 - 增加onProps方法，用于监听云端对物模型属性设置的监听
+- 解决postEvent和postProps回调中内容不正确的问题
 
 #### 1.2.5
 - 修复网关使用mqtt pub和sub时字符转译报错的警告
 
-#### 1.2.5
-- 修复网关使用mqtt pub和sub时字符转译报错的警告
-
-#### 1.2.4
+#### 1.2.4 稳定版本
 
 - 包名的修改，从 aliyun-iot-device-sdk 正式改名为 alibabacloud-iot-device-sdk
 - 增加对微信小程序，支付宝小程序的支持，浏览器的支持 [教程连接 ./docs](./docs)

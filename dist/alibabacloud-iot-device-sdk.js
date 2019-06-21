@@ -25,7 +25,9 @@ var ALIYUN_BROKER_TOPICS = exports.ALIYUN_BROKER_TOPICS = {
   SERVICE_REPLY_TOPIC: '/sys/%s/%s/thing/service/%s_reply',
   PROPERTY_POST_TOPIC: '/sys/%s/%s/thing/event/property/post',
   PROPERTY_POST_REPLY_TOPIC: '/sys/%s/%s/thing/event/property/post_reply',
-  EVENT_WILDCARD_TOPIC: '/sys/%s/%s/thing/event/#',
+  ONSET_PROPS_TOPIC: '/sys/%s/%s/thing/service/property/set',
+  // EVENT_WILDCARD_TOPIC:'/sys/%s/%s/thing/event/#',
+  EVENT_WILDCARD_TOPIC: '/sys/%s/%s/thing/event/+/post_reply',
   EVENT_POST_TOPIC: '/sys/%s/%s/thing/event/%s/post',
   EVENT_POST_REPLY_TOPIC: '/sys/%s/%s/thing/event/%s/post_reply',
   REPORT_SDK_INFO_TOPIC: '/sys/%s/%s/thing/deviceinfo/update',
@@ -213,6 +215,7 @@ var Gateway = function (_Thing) {
       }, function (resp) {
         cb(resp);
         if (resp.code === 200) {
+          // gateway subscribe subDevice Topic
           // subdevice subscribe topic must until subdevice login succeed!
           _this2._subscribePresetTopic(subDevice);
           subDevice.emit("connect");
@@ -277,6 +280,14 @@ var Gateway = function (_Thing) {
         var subDevice = void 0;
         // console.log('gateway _mqttCallbackHandler',topic,res);
 
+        //处理On Props Set回调
+        // topic /sys/<pk>/<dn>/thing/service/property/set
+        subDevice = this._searchMqttMatchOnSetPropsTopicWithSubDevice(topic);
+        if (subDevice) {
+          subDevice._onPropsCB(res);
+          return;
+        }
+
         //处理子设备服务返回数据,同步或者异步方式
         subDevice = this._searchMqttMatchServiceTopicWithSubDevice(topic);
         if (subDevice) {
@@ -303,7 +314,7 @@ var Gateway = function (_Thing) {
         //其他通用回调
         var cbID = res.id;
 
-        var callback = this._getAllSubDevicesCallback(cbID);
+        var callback = this._getAllSubDevicesCallback(cbID, topic);
         // console.log("gateway通用回调",topic,callback,message);
         if (callback) {
           callback(res);
@@ -316,6 +327,15 @@ var Gateway = function (_Thing) {
       _get(Gateway.prototype.__proto__ || Object.getPrototypeOf(Gateway.prototype), '_mqttCallbackHandler', this).call(this, topic, message);
     }
 
+    // 子设备On Set Porps topic
+
+  }, {
+    key: '_searchMqttMatchOnSetPropsTopicWithSubDevice',
+    value: function _searchMqttMatchOnSetPropsTopicWithSubDevice(topic) {
+      return this._getSubDevices().find(function (subDevice) {
+        return mqttMatch(subDevice.model.ONSET_PROPS_TOPIC, topic);
+      });
+    }
     // 子设备的服务topic
 
   }, {
@@ -358,11 +378,11 @@ var Gateway = function (_Thing) {
     }
   }, {
     key: '_getAllSubDevicesCallback',
-    value: function _getAllSubDevicesCallback(cbID) {
+    value: function _getAllSubDevicesCallback(cbID, topic) {
       var callback = void 0;
       this._getSubDevices().forEach(function (subDevice) {
         // console.log('>>>subDevice',subDevice);
-        var cb = subDevice._popCallback(cbID);
+        var cb = subDevice._findCallback(cbID, topic);
         if (cb) {
           callback = cb;
         }
@@ -678,6 +698,8 @@ var Model = function () {
       };
       this.POST_PROPS_TOPIC = _formatWithPKDN(_const.ALIYUN_BROKER_TOPICS.PROPERTY_POST_TOPIC);
       this.POST_PROPS_REPLY_TOPIC = _formatWithPKDN(_const.ALIYUN_BROKER_TOPICS.PROPERTY_POST_REPLY_TOPIC);
+      this.ONSET_PROPS_TOPIC = _formatWithPKDN(_const.ALIYUN_BROKER_TOPICS.ONSET_PROPS_TOPIC);
+
       // this.POST_EVENT_TOPIC = _formatWithPKDN(BROKER_TOPICS.EVENT_POST_TOPIC)
       // this.POST_EVENT_REPLY_TOPIC = _formatWithPKDN(BROKER_TOPICS.EVENT_POST_REPLY_TOPIC)
       this.SERVICE_TOPIC = _formatWithPKDN(_const.ALIYUN_BROKER_TOPICS.SERVICE_TOPIC);
@@ -812,6 +834,8 @@ var Thing = function (_EventEmitter) {
     _this.serveCB = [];
     _this._onShadowCB = nilFn;
     _this._onConfigCB = nilFn;
+    // props set callback
+    _this._onPropsCB = nilFn;
     //兼容旧版本
     _this._compatibleoverdue();
     return _this;
@@ -870,9 +894,19 @@ var Thing = function (_EventEmitter) {
       this._publishAlinkMessage({
         method: this.model.POST_PROPERY_METHOD,
         pubTopic: this.model.POST_PROPS_TOPIC,
+        expectReplyTopic: this.model.POST_PROPS_REPLY_TOPIC,
         params: props
       }, cb);
     }
+
+    // 当云端属性设置时触发
+
+  }, {
+    key: 'onProps',
+    value: function onProps(cb) {
+      this._onPropsCB = cb;
+    }
+
     /*
       高级版设备事件上报：详细文档地址：https://help.aliyun.com/document_detail/89301.html?spm=a2c4g.11186623.6.660.3ad223dcF1jjSU
       "params": {"key": "key","value": "value"}
@@ -887,6 +921,7 @@ var Thing = function (_EventEmitter) {
       this._publishAlinkMessage({
         method: this.model.getPostEventMethod(eventName),
         pubTopic: this.model.getPostEvenTopic(eventName),
+        expectReplyTopic: this.model.getPostEvenReplyTopic(eventName),
         params: params
       }, cb);
     }
@@ -1118,9 +1153,12 @@ var Thing = function (_EventEmitter) {
           method = _ref$method === undefined ? "" : _ref$method,
           pubTopic = _ref.pubTopic,
           params = _ref.params,
-          timeout = _ref.timeout;
+          expectReplyTopic = _ref.expectReplyTopic,
+          timeout = _ref.timeout,
+          msgId = _ref.msgId;
 
-      var id = guid();
+
+      var id = this._genAlinkMessageId(msgId, expectReplyTopic);
       //暂存回调函数
       this._pushCallback(id, cb);
       var msg = this.model.genAlinkContent(method, params, id);
@@ -1133,6 +1171,20 @@ var Thing = function (_EventEmitter) {
           debug('publish error', pubTopic, msg.id, err, res);
         }
       });
+    }
+  }, {
+    key: '_genAlinkMessageId',
+    value: function _genAlinkMessageId(originID, expect) {
+      var msgId = void 0;
+      var separator = '|exp-topic|';
+      if (!originID) {
+        msgId = guid();
+      }
+      // 解决部分topic响应多次的问题
+      if (expect) {
+        msgId = msgId + separator + expect;
+      }
+      return msgId;
     }
   }, {
     key: '_subscribeClientEvent',
@@ -1186,7 +1238,7 @@ var Thing = function (_EventEmitter) {
       // "/shadow/#",
       // "/ext/#"
       // devices
-      thing.model.POST_PROPS_REPLY_TOPIC, thing.model.getWildcardEvenTopic(), thing.model.TAG_REPLY_TOPIC, thing.model.TAG_DELETE_REPLY_TOPIC, thing.model.CONFIG_REPLY_TOPIC, thing.model.SHADOW_SUBSCRIBE_TOPIC, thing.model.CONFIG_SUBSCRIBE_TOPIC, thing.model.CONFIG_SUBSCRIBE_RESP_TOPIC,
+      thing.model.POST_PROPS_REPLY_TOPIC, thing.model.ONSET_PROPS_TOPIC, thing.model.getWildcardEvenTopic(), thing.model.TAG_REPLY_TOPIC, thing.model.TAG_DELETE_REPLY_TOPIC, thing.model.CONFIG_REPLY_TOPIC, thing.model.SHADOW_SUBSCRIBE_TOPIC, thing.model.CONFIG_SUBSCRIBE_TOPIC, thing.model.CONFIG_SUBSCRIBE_RESP_TOPIC,
       // gateway
       thing.model.ADD_TOPO_REPLY_TOPIC, thing.model.DELETE_TOPO_REPLY_TOPIC, thing.model.GET_TOPO_REPLY_TOPIC, thing.model.LOGIN_REPLY_TOPIC, thing.model.LOGOUT_REPLY_TOPIC, thing.model.SUBDEVICE_REGISTER_REPLY_TOPIC, thing.model.RRPC_REQ_TOPIC].forEach(function (replyTopic) {
         // console.log("subscribe topic>>>>>>", replyTopic);
@@ -1206,6 +1258,9 @@ var Thing = function (_EventEmitter) {
     key: '_mqttCallbackHandler',
     value: function _mqttCallbackHandler(topic, message) {
       // console.log('device _mqttCallbackHandler',topic,message);
+      // console.log('message',JSON.parse(message.toString()));
+      // console.log('topic',topic);
+
       // 几种不处理的情况
       // 情况1:回调函数为空
       if (this._cb == [] && this._serviceCB == [] && this._onShadowCB == nilFn && this._onConfigCB == nilFn) {
@@ -1218,9 +1273,17 @@ var Thing = function (_EventEmitter) {
       // 开始处理返回值
       try {
         var res = JSON.parse(message.toString());
+
+        //处理On Props Set回调
+        // topic /sys/<pk>/<dn>/thing/service/property/set
+        if (mqttMatch(this.model.ONSET_PROPS_TOPIC, topic)) {
+          this._onPropsCB(res);
+          return;
+        }
+
         //处理物模型服务订阅返回数据,同步或者异步方式
         if ((mqttMatch(this.model.getWildcardServiceTopic(), topic) || mqttMatch(this.model.RRPC_REQ_TOPIC, topic)) && this._onReceiveService != undefined) {
-          console.log("device  mqttMatch(this.model.getWildcardServiceTopic");
+          // console.log("device  mqttMatch(this.model.getWildcardServiceTopic");
           this._onReceiveService(topic, res);
           return;
         }
@@ -1237,7 +1300,7 @@ var Thing = function (_EventEmitter) {
         //其他通用回调
         var cbID = res.id;
 
-        var callback = this._popCallback(cbID);
+        var callback = this._findCallback(cbID, topic);
         if (callback) {
           callback(res);
         }
@@ -1245,15 +1308,34 @@ var Thing = function (_EventEmitter) {
         // console.log('_mqttCallbackHandler error',e)
       }
     }
-    // 查找回调函数,找到后使
-
   }, {
-    key: '_popCallback',
-    value: function _popCallback(cbID) {
+    key: '_findCallback',
+    value: function _findCallback(cbID, topic) {
+      var separator = '|exp-topic|';
+      var msgTopic = cbID.split(separator)[1];
+      if (msgTopic && msgTopic != topic) {
+        return;
+      }
+      // 查找回调函数,找到后删除
       var cb = this._getCallbackById(cbID);
       delete this._cb[cbID];
       return cb;
+
+      // if(cbID.indexOf(separator)>0 ){
+      //   console.log("cbID>>>>:",cbID);
+      //   console.log("cbID.split",cbID.split(separator)[1]);
+      //   if(cbID.split(separator)[1] != topic){
+      //     return;
+      //   }
+      // }
     }
+    // // 查找回调函数,找到后使
+    // _popCallback(cbID) {
+    //   const cb = this._getCallbackById(cbID);
+    //   delete this._cb[cbID];
+    //   return cb;
+    // }
+
   }, {
     key: '_wrapServiceSubscribe',
     value: function _wrapServiceSubscribe(serviceName, cb) {
@@ -35181,7 +35263,7 @@ function extend() {
 },{}],289:[function(require,module,exports){
 module.exports={
   "name": "alibabacloud-iot-device-sdk",
-  "version": "1.2.5",
+  "version": "1.2.6",
   "description": "alibabacloud iot device sdk",
   "keywords": [
     "iot",
