@@ -8,7 +8,7 @@ const registerDeviceInfo = {
 
 iot.register(registerDeviceInfo,(res)=>{
   if(res.code != 200){
-    console.log("register faild",error);
+    console.log("register faild",res);
     return;
   }
   console.log("register succeed");
