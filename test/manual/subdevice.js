@@ -104,7 +104,7 @@ gateway.on('connect', () => {
     // sub1.getConfig((res) => {
     //   console.log('>>>> getConfig:',res.data);
     // });
-    // // 订阅远程配置 todo:be some problem
+    // // 订阅远程配置 
     // sub1.onConfig((res) => {
     //   console.log("onConfig,res:",res);
     // });

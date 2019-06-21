@@ -9,13 +9,18 @@ const device = iot.device({
 
 device.on('connect', () => {
   console.log('>>>>>connect');
-  setInterval(() => {
-    device.postProps({
-      state: count++%2
-    }, (res) => {
-      console.log(`postProps:`,res);
-    });
-  }, 10000);
+  // setInterval(() => {
+  //   device.postProps({
+  //     state: count++%2
+  //   }, (res) => {
+  //     console.log(`postProps:`,res);
+  //   });
+  // }, 10000);
+  device.postProps({
+    state: count++%2
+  }, (res) => {
+    console.log(`postProps:>>>>>>>>>>`,res);
+  });
 });
 
 device.onProps((res)=>{

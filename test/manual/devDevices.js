@@ -190,7 +190,7 @@ function devicebeok() {
     console.log("onConfig,res:",res);
   });
 
-  // 获取远程接收云端下发 todo
+  // 获取远程接收云端下发
   device.onConfig((res) => {
     console.log(`onConfig:${res.data.toString()}`);
   });

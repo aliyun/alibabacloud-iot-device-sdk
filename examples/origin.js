@@ -4,8 +4,8 @@ const iot = require('../');
 // init device and connect linkplatform
 const device = iot.device({
   "ProductKey": "a1YPDpMvd5t",
-  "DeviceName": "base_sdk_device2",
-  "DeviceSecret": "WnuQaINuj8oJva7R2vJGwds5w9PqF9VT"
+  "DeviceName": "base_sdk_device4",
+  "DeviceSecret": "2Df8xOQC1yfBeAZhRkYHJV4YuuXF4H08"
 });
 
 
