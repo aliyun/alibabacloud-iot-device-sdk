@@ -103,7 +103,7 @@ export default class Model {
    * Username: deviceName+"&"+productKey 
    * Password: sign_hmac(deviceSecret,content)
    * securemode：表示目前安全模式，可选值有2 （TLS直连模式）和3（TCP直连模式）
-   * signmethod：签名算法，支持hmacmd5，hmacsha1，hmacsha256和 sha256，默认为hmacmd5。
+   * signmethod：签名算法，支持hmacmd5，hmacsha1，hmacsha256和 sha256，默认为 hmacsha1。
    * timestamp: 可选
    */
   genConnectPrarms1() {
