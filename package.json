@@ -1,6 +1,6 @@
 {
   "name": "alibabacloud-iot-device-sdk",
-  "version": "1.2.7",
+  "version": "1.2.8",
   "description": "alibabacloud iot device sdk",
   "keywords": [
     "iot",
@@ -43,7 +43,8 @@
   "url": "https://github.com/aliyun/alibabacloud-iot-device-sdk/issues",
   "license": "MIT",
   "files": [
-    "dist/","lib"
+    "dist/",
+    "lib"
   ],
   "devDependencies": {
     "babel-cli": "^6.26.0",
@@ -56,6 +57,7 @@
   },
   "dependencies": {
     "axios": "^0.18.0",
+    "crypto-js": "^3.1.9-1",
     "mqtt": "3.0.0",
     "qs": "^6.6.0"
   },

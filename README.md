@@ -6,6 +6,12 @@ alibabacloud IoT Device SDK提供设备接入阿里云IoT物联网平台(LinkPla
 如果有使用问题可以反馈到xuanyan.lyw@alibaba-inc.com，关于IoT物联网平台更多功能和功能详细说明，参考官网文档 [https://help.aliyun.com/product/30520.html](https://help.aliyun.com/product/30520.html)
 
 
+## 优点
+
+- 阿里云物联网平台js版本官方sdk
+- 支持node、broswer、微信小程序、支付宝小程序环境运行
+- 体积小，压缩版本仅有418k
+
 ## 安装
 
 > 安装 Node.js 运行环境，版本 `>=4.0.0` 。
@@ -717,6 +723,9 @@ example见github开源工程中example目录 https://github.com/aliyun/alibabacl
 
 
 ## 版本更新说明
+
+#### 1.2.8
+- 使用crypto-js替代原生的crypto做设备签名加密功能，浏览器和微信支付宝小程序的编译大小，min压缩版从661k减少到418k，体积减少37%
 
 
 #### 1.2.7

@@ -1,13 +1,10 @@
-const crypto = require('crypto');
+const cryptojs = require('crypto-js');
 const os = require('os');
 const axios = require('axios');
 const qs = require('qs');
 
 function hmacSign(type, secret, content) {
-  return crypto
-    .createHmac(type, secret)
-    .update(content) 
-    .digest('hex');
+  return cryptojs.HmacSHA1(content,secret).toString();
 }
 
 function mqttMatch(filter, topic) {
