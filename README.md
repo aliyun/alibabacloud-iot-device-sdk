@@ -23,7 +23,7 @@ npm install alibabacloud-iot-device-sdk --save
 ```
 
 当前稳定版本 1.2.4
-当前最新版本 1.2.5
+当前最新版本 1.2.7
 
 ## 快速开始
 
