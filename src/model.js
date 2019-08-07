@@ -106,33 +106,6 @@ export default class Model {
    * signmethod：签名算法，支持hmacmd5，hmacsha1，hmacsha256和 sha256，默认为 hmacsha1。
    * timestamp: 可选
    */
-  genConnectPrarms1() {
-    const lang = getSDKLanguage();
-    const extra = `lan=${lang},_v=${packageJson.version}` 
-    let params =  {
-      clientId: `
-        ${this.clientId}|securemode=${this.securemode},
-        signmethod=hmac${this.signAlgorithm},
-        timestamp=${this.timestamp}|
-      `,
-      username: `${this.deviceName}&${this.productKey}`,
-      password: hmacSign(
-        this.signAlgorithm,
-        this.deviceSecret,
-        `clientId${this.clientId}deviceName${this.deviceName}productKey${
-            this.productKey
-            }timestamp${this.timestamp}`
-      ),
-      keepalive: this.keepalive,
-      clean: this.clean,
-    }
-    // 支付宝小程序api全局对象my
-    if(lang==='JS|Ali'){
-      params.my = my;
-    }
-    return params;
-  }
-
   genConnectPrarms() {
     const lang = getSDKLanguage();
     const extra = `lan=${lang},_v=${packageJson.version}|` 
