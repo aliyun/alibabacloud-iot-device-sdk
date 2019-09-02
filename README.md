@@ -716,6 +716,7 @@ example见github开源工程中example目录 https://github.com/aliyun/alibabacl
 - tag 设备标签获取 路径 /example/tag.js
 - shadow 设备影子 路径 /example/shadow.js
 - one_model_one_secret 一型一密使用demo 路径 /example/one_model_one_secret.js
+- forward 通过规则引擎转发后订阅数据的示例
 
 
 
