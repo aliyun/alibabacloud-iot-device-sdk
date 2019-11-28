@@ -127,6 +127,7 @@ device.onService('wakeup_async', function (res,reply) {
 * <a href="#subscribe"><code>iot.device#<b>subscribe()</b></code></a>
 * <a href="#unsubscribe"><code>iot.device#<b>unsubscribe()</b></code></a>
 * <a href="#postProps"><code>iot.device#<b>postProps()</b></code></a>
+* <a href="#onProps"><code>iot.device#<b>onProps()</b></code></a>
 * <a href="#postEvent"><code>iot.device#<b>postEvent()</b></code></a>
 * <a href="#onService"><code>iot.device#<b>onService()</b></code></a>
 * <a href="#end"><code>iot.device#<b>end()</b></code></a>
@@ -282,6 +283,24 @@ device.postProps({
   console.log(res);
 });
 ````
+
+<a name="onProps"></a>
+
+### iot.device#onProps(cb)
+
+上报物模型属性：
+
+* `refuns`
+  * `cb` 回调函数
+
+<a name="onProps"></a>
+
+````js
+device.onProps((res)=>{
+  console.log('>>>onProps',res);
+})
+````
+
 
 ### iot.device#postEvent(eventIdentifier, params, [callback])
 
