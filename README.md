@@ -11,6 +11,7 @@ alibabacloud IoT Device SDK提供设备接入阿里云IoT物联网平台(LinkPla
 - 阿里云物联网平台js版本官方sdk
 - 支持node、broswer、微信小程序、支付宝小程序环境运行
 - 体积小，压缩版本仅有418k
+- 已为数十万设备或小程序提供链接服务
 
 ## 安装
 
