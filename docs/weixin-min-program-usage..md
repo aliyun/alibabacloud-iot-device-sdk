@@ -4,7 +4,7 @@
 
 ## 小程序开发环境
 
-详细参考：https://developers.weixin.qq.com/miniprogram/dev/
+详细参考：https://developers.weixin.qq.com/miniprogram/dev/framework/
 
 ## 如何集成
 
