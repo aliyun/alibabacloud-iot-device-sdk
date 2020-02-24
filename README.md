@@ -26,6 +26,11 @@ npm install alibabacloud-iot-device-sdk --save
 当前稳定版本 1.2.4
 当前最新版本 1.2.8
 
+## 特别注意
+
+支付宝小程序使用注意:
+支付宝最新版本容器升级后导致支付宝小程序无法使用 'alibabacloud-iot-device-sdk.js' ，请使用支付宝定制版本  'alibabacloud-iot-device-sdk-1.2.8-alimin-compatible.js',请在dist目录下下载
+
 ## 快速开始
 
 ```javascript
@@ -33,6 +38,7 @@ npm install alibabacloud-iot-device-sdk --save
 const iot = require('alibabacloud-iot-device-sdk');
 // 浏览器、微信小程序，支付宝小程序引入./dist编译的js文件
 // const iot = require('./dist/alibabacloud-iot-device-sdk.js');
+// 特别注意：支付宝最新版本容器升级后导致支付宝小程序无法使用 'alibabacloud-iot-device-sdk.js' ，请使用支付宝定制版本  'alibabacloud-iot-device-sdk-1.2.8-alimin-compatible.js',请在dist目录下下载
 // js版本下载地址：
 //    https://github.com/aliyun/alibabacloud-iot-device-sdk/tree/master/dist  或
 //    alibabacloud-iot-device-sdk.js 下载地址 https://unpkg.com/alibabacloud-iot-device-sdk@1.2.4/dist/alibabacloud-iot-device-sdk.js  或
