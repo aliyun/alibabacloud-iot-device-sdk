@@ -160,7 +160,7 @@ device.onService('wakeup_async', function (res,reply) {
 * 与设备api相同，通过网关的login()方法返回子设备实例
 
 动态注册
-* <a href="#register"><code>iot(<b>register()</b></code></a>
+* <a href="#register"><code>iot#<b>register()</b></code></a>
 * <a href="#regiestSubDevice"><code>iot.gateway#<b>regiestSubDevice()</b></code></a>
 
 
