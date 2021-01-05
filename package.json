@@ -56,7 +56,7 @@
     "uglify-js": "^3.4.5"
   },
   "dependencies": {
-    "axios": "^0.18.0",
+    "axios": "^0.21.1",
     "crypto-js": "^3.1.9-1",
     "mqtt": "3.0.0",
     "qs": "^6.6.0"
