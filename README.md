@@ -663,7 +663,7 @@ gateway.logout(
 
 ### iot#register(params, [callback])
 
-直连设备动态注册
+直连设备动态注册（不支持小程序环境）
 
 * `params` 子设备身份 object 实例  productKey:"a15YDgQGhU0",
   * `productKey`
