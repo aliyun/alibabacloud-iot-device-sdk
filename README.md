@@ -663,7 +663,7 @@ gateway.logout(
 
 ### iot#register(params, [callback])
 
-直连设备动态注册（不支持小程序环境）
+直连设备动态注册（小程序环境不支持此方法）
 
 * `params` 子设备身份 object 实例  productKey:"a15YDgQGhU0",
   * `productKey`
@@ -690,7 +690,7 @@ iot.register(params,(res)=>{
 
 ### iot.gateway#regiestSubDevice(params, [callback])
 
-通过网关注册子设备
+通过网关注册子设备（小程序环境不支持此方法）
 
 * `params` 子设备身份信息,可以是单个`{productKey,deviceName}`或者是一组`[{productKey,deviceName},{productKey2,deviceName2}]`进行批量注册
   * `productKey`
